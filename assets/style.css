@@ -295,6 +295,58 @@ table.t .grp td { padding-top: 14px; font: 600 11px var(--sans); color: var(--in
 .kv dt { color: var(--ink-3); }
 .kv dd { margin: 0; overflow-wrap: anywhere; }
 
+/* ---------- agents */
+.dot.a-stale { background: var(--st-empty); opacity: .9; }
+.dot.a-blocked { background: var(--c4); opacity: 1; }
+.dot.a-waiting { background: var(--st-empty); opacity: 1; }
+.dot.a-done { background: var(--st-written); opacity: .8; }
+.dot.a-idle { background: var(--ink-3); opacity: .6; }
+.chip.state { --c: var(--live); }
+.chip.state.s-blocked { --c: var(--c4); } .chip.state.s-waiting { --c: var(--st-empty); }
+.chip.state.s-done { --c: var(--st-written); } .chip.state.s-idle { --c: var(--ink-3); }
+.chip.k-agent { --c: var(--c5); }
+.chip.agent-chip { --c: var(--ink-2); cursor: pointer; font-family: var(--mono); }
+.agents { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr)); gap: 18px; }
+.agent { display: flex; flex-direction: column; gap: 9px; padding: 16px 18px 14px; border: 1px solid var(--line); border-radius: 16px;
+  background: var(--card); box-shadow: var(--shadow); cursor: pointer; min-width: 0; border-top: 3px solid var(--live); }
+.agent:hover { box-shadow: var(--shadow-lg); }
+.agent.s-blocked { border-top-color: var(--c4); } .agent.s-waiting { border-top-color: var(--st-empty); }
+.agent.s-done { border-top-color: var(--st-written); } .agent.s-idle { border-top-color: var(--ink-3); }
+.agent-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.agent-top .chip { margin-left: auto; }
+.agent-id { font: 600 13px var(--mono); }
+.agent h3 { margin: 0; font: 500 19px/1.3 var(--serif); }
+.agent-try { margin: 0; font-size: 13px; color: var(--ink-2); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.agent-plan { display: grid; gap: 4px; }
+.agent-res p, .agent-needs p { margin: 2px 0 0; font-size: 13px; overflow-wrap: anywhere; }
+.agent-res p { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.agent-needs { border-left: 2px solid var(--c5); padding-left: 10px; }
+.agent-foot { margin-top: auto; display: flex; justify-content: space-between; align-items: center; gap: 8px; font: 11px var(--mono); color: var(--ink-3); flex-wrap: wrap; }
+.req { padding: 10px 0; border-top: 1px solid var(--line); }
+.req:first-of-type { border-top: 0; }
+.req .m { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font: 11px var(--mono); color: var(--ink-3); }
+.req p { margin: 5px 0 0; font: 15px/1.45 var(--serif); overflow-wrap: anywhere; }
+.sub-h { margin: 22px 0 4px; font: 600 10.5px var(--sans); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); }
+.join { margin-top: 22px; }
+.join summary { cursor: pointer; list-style: none; }
+.join summary::-webkit-details-marker { display: none; }
+.join summary h2 { display: inline; margin: 0; font: 400 26px/1.2 var(--serif); }
+.join summary::after { content: " ▾"; color: var(--ink-3); }
+.join[open] summary::after { content: " ▴"; }
+.join .panel-sub { margin-top: 12px; }
+pre.code { margin: 0 0 12px; padding: 12px 14px; border-radius: 10px; background: var(--bg-2); font: 12px/1.6 var(--mono); overflow-x: auto; white-space: pre; }
+.empty-agents { margin-bottom: 4px; }
+.empty-agents h2 { margin: 0 0 6px; font: 400 26px/1.2 var(--serif); }
+.seat-line.agent { margin-top: 2px; color: var(--c5); align-items: center; }
+.seat-line.agent .dot { width: 6px; height: 6px; }
+.drawer h2.mono-h { font: 600 26px/1.2 var(--mono); letter-spacing: -.01em; }
+ul.plan, ul.res { margin: 0; padding: 0; list-style: none; }
+ul.plan li, ul.res li { padding: 5px 0; border-top: 1px solid var(--line); font-size: 13.5px; overflow-wrap: anywhere; }
+ul.plan li:first-child, ul.res li:first-child { border-top: 0; }
+ul.plan li span { display: inline-block; width: 20px; color: var(--ink-3); }
+ul.plan li.done { color: var(--ink-2); }
+ul.plan li.done span { color: var(--live); }
+
 /* ---------- lock screen of the published copy */
 body.locked .nav, body.locked .foot { visibility: hidden; }
 .lock { min-height: 62vh; display: grid; place-items: center; }

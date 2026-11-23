@@ -50,6 +50,7 @@
       const txt = t ? `edited ${t.unit}${t.lines ? ` (${plural(t.lines, 'line')})` : ''}` : 'edited on Overleaf';
       return html ? esc(txt) : txt;
     }
+    if (e.kind === 'agent') return html ? esc(e.subject) : e.subject;
     if (e.kind === 'export') {
       const n = (e.new || [])[0];
       if (n) {
@@ -64,7 +65,17 @@
     return html ? esc(e.subject) : e.subject;
   }
   const whoTag = (e) => `${esc(e.who)}${e.ai ? ' <span class="chip ai">AI</span>' : ''}`;
-  const kindChip = (e) => `<span class="chip k-${e.kind}">${e.kind === 'paper' ? 'Overleaf' : e.kind === 'export' ? 'export' : 'commit'}</span>`;
+  const kindChip = (e) => `<span class="chip k-${e.kind}">${({ paper: 'Overleaf', export: 'export', agent: 'agent report' })[e.kind] || 'commit'}</span>`;
+
+  // agents: their state, and how fresh their report is
+  const agentById = (id) => (S.data.agents || []).find((a) => a.id === id);
+  const STATE_LABEL = { working: 'working', blocked: 'blocked', waiting: 'waiting', done: 'done', idle: 'idle' };
+  function agentDot(a) {
+    if (a.state === 'working') { const x = act(a.updated); return x === 'week' || x === 'quiet' ? 'stale' : x; }
+    return a.state;
+  }
+  const staleNote = (a) => (a.state === 'working' && a.updated && age(a.updated) > D ? ' · not updated for a day' : '');
+  const agentChip = (id) => { const a = agentById(id); return a ? `<button class="chip agent-chip" data-agent="${esc(id)}"><span class="dot a-${agentDot(a)}"></span>${esc(id)}</button>` : `<span class="chip">@${esc(id)}</span>`; };
   const wsChip = (id) => { const w = wsById(id); return w ? `<button class="chip ws" style="--hue:${hue(w.cluster)}" data-ws="${esc(id)}">${esc(w.title)}</button>` : ''; };
   const ST_SHORT = { written: 'in paper', draft: 'drafting', empty: 'to write', out: 'not in draft', none: '' };
   const stChip = (w, small = false) => (small && !ST_SHORT[st(w)] ? '' : `<span class="chip st-${st(w)}">${(small ? ST_SHORT : ST_LABEL)[st(w)]}</span>`);
@@ -78,16 +89,20 @@
     }).join('')}</svg>`;
   }
 
+  /** Inline markdown: `code`, **bold**, [text](https://…). Input is escaped first. */
+  function mdi(s) {
+    const codes = [];
+    s = esc(s).replace(/`([^`]+)`/g, (_, c) => { codes.push(c); return `\u0000${codes.length - 1}\u0000`; });
+    s = s.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    return s.replace(/\u0000(\d+)\u0000/g, (_, k) => `<code>${codes[+k]}</code>`);
+  }
+  const plainMd = (s) => String(s || '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/[`*]/g, '');
+
   /** Minimal markdown: paragraphs, lists, tables, `code`, **bold**, links. Input is escaped first. */
   function md(src) {
     if (!src) return '';
-    const inline = (s) => {
-      const codes = [];
-      s = esc(s).replace(/`([^`]+)`/g, (_, c) => { codes.push(c); return `\u0000${codes.length - 1}\u0000`; });
-      s = s.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
-        .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
-      return s.replace(/\u0000(\d+)\u0000/g, (_, k) => `<code>${codes[+k]}</code>`);
-    };
+    const inline = mdi;
     return src.split(/\n{2,}/).map((block) => {
       const lines = block.split('\n');
       if (lines.every((l) => l.trim().startsWith('|'))) {
@@ -231,7 +246,7 @@
   // ------------------------------------------------------------------ router
   function route() {
     const [, view = 'live', sel = null] = (location.hash || '#/live').split('/');
-    S.view = ['live', 'map', 'paper', 'activity'].includes(view) ? view : 'live';
+    S.view = ['live', 'agents', 'map', 'paper', 'activity'].includes(view) ? view : 'live';
     S.sel = sel ? decodeURIComponent(sel) : null;
   }
   function go(view, sel = null) { location.hash = `#/${view}${sel ? '/' + encodeURIComponent(sel) : ''}`; }
@@ -252,7 +267,7 @@
     renderTicker();
     const v = $('#view');
     const keep = window.scrollY;
-    v.innerHTML = ({ live: viewLive, map: viewMap, paper: viewPaper, activity: viewActivity })[S.view]();
+    v.innerHTML = ({ live: viewLive, agents: viewAgents, map: viewMap, paper: viewPaper, activity: viewActivity })[S.view]();
     if (S.view === 'live') requestAnimationFrame(drawWires);
     if (S.view === 'map') requestAnimationFrame(fitMap);
     window.scrollTo(0, keep);
@@ -290,6 +305,7 @@
       [`${written}/${units.length}`, 'paper parts written'],
       [d.stats.values, 'numbers quoted in the paper'],
     ];
+    if ((d.agents || []).length) stats.splice(1, 0, [d.agents.length, 'agents reporting']);
     return `${warn}
     <section class="hero">
       <div class="hero-title"><h1>Live research map</h1>${fresh()}</div>
@@ -329,8 +345,14 @@
     const paper = lp && (!lw || lp.t > lw.t) ? `<div class="seat-line paper"><span class="when">${short(lp.t)}</span><span class="what">paper · ${esc(lp.who)}: ${esc(what(lp, false, w.id))}</span></div>` : '';
     return `<button class="seat${a === 'quiet' ? ' quiet' : ''}${w.planned ? ' planned' : ''}" data-ws="${esc(w.id)}" data-act="${a}" title="${esc(w.title)} — ${esc(ACT_LABEL[a])}">
       <div class="seat-top"><span class="dot a-${a}"></span><span class="seat-name">${esc(w.title)}</span>${stChip(w, true)}</div>
-      <div class="seat-line">${work}</div>${paper}
+      <div class="seat-line">${work}</div>${paper}${agentLine(w)}
     </button>`;
+  }
+
+  function agentLine(w) {
+    const a = (w.agents || []).map(agentById).filter(Boolean)[0];
+    if (!a) return '';
+    return `<div class="seat-line agent"><span class="dot a-${agentDot(a)}"></span><span class="what">${esc(a.id)} · ${esc(a.state)}: ${esc(a.task)}</span></div>`;
   }
 
   function hubCell() {
@@ -376,8 +398,9 @@
 
   function msg(e) {
     const to = (e.ws || []).map((id) => wsById(id)).filter(Boolean);
-    const target = e.kind === 'paper' ? 'paper' : to.length ? to.map((w) => w.title).slice(0, 2).join(', ') : (e.branches || []).join(', ');
+    const target = e.kind === 'paper' ? 'paper' : to.length ? to.map((w) => w.title).slice(0, 2).join(', ') : e.kind === 'agent' ? 'agents board' : (e.branches || []).join(', ');
     let files = '';
+    if (e.kind === 'agent' && e.changes) files = `<div class="msg-files">${esc(e.changes.join(' · '))}${e.owner ? ` · ${esc(e.owner)}` : ''}</div>`;
     if (e.kind === 'export' && e.new && e.new.length) {
       const d = e.new[0].doc;
       files = d && d.text ? `<div class="msg-files">${esc(d.text)}</div>` : '';
@@ -391,7 +414,7 @@
     return `<article class="msg">
       <div class="msg-h"><span><span class="who">${whoTag(e)}</span> → ${esc(target)}</span><time datetime="${esc(e.t)}" title="${esc(when(e.t))}" data-ago="${esc(e.t)}">${ago(e.t)}</time></div>
       <p class="msg-q">${what(e, true)}</p>${files}
-      <div class="msg-f">${kindChip(e)}${(e.ws || []).slice(0, 3).map(wsChip).join('')}<span class="num">+${e.add} −${e.del}</span>${link}</div>
+      <div class="msg-f">${kindChip(e)}${e.kind === 'agent' ? agentChip(e.who) : ''}${(e.ws || []).slice(0, 3).map(wsChip).join('')}${e.kind === 'agent' ? '' : `<span class="num">+${e.add} −${e.del}</span>`}${link}</div>
     </article>`;
   }
 
@@ -507,6 +530,77 @@
       </div>`;
   }
 
+  // ------------------------------------------------------------------ Agents
+  const JOIN = `git fetch -q origin agents && git show origin/agents:agent_status.py > /tmp/agent_status.py
+python3 /tmp/agent_status.py template YOUR-AGENT --owner "Your Name" --workstream WORKSTREAM > status.md
+# edit status.md: task, what you are trying to do, plan, results, needs
+python3 /tmp/agent_status.py publish status.md -m "what changed"
+python3 /tmp/agent_status.py list            # everyone
+python3 /tmp/agent_status.py inbox YOUR-AGENT  # requests to you`;
+
+  function viewAgents() {
+    const d = S.data;
+    const ag = d.agents || [];
+    const reqs = ag.flatMap((a) => a.needs.map((n) => ({ from: a, ...n })));
+    const quiet = d.quiet_agents || [];
+    const stats = [
+      [ag.length, 'agents reporting'],
+      [ag.filter((a) => a.state === 'working' && age(a.updated) < D).length, 'working, updated today'],
+      [ag.filter((a) => a.state === 'blocked' || a.state === 'waiting').length, 'blocked or waiting'],
+      [reqs.length, 'requests between agents'],
+    ];
+    const ws = (d.workstreams || []).map((w) => `<code>${esc(w.id)}</code>`).join(' ');
+    const join = `<details class="panel join"${ag.length ? '' : ' open'}><summary><h2>How an agent joins</h2></summary>
+      <p class="panel-sub">Each agent keeps one file, <code>agents/AGENT.md</code>, on the <code>agents</code> branch. The tool commits it there without touching the agent's own checkout, so it works from any branch. Ask your agent to publish when it starts a task, after each milestone or result, when it is blocked, and when it finishes; and to read <code>inbox</code> before it starts.</p>
+      <pre class="code">${esc(JOIN)}</pre>
+      <p class="panel-sub">In Results, write a file as <code>\`branch:path\`</code> (for example <code>\`on:on_models/README.md\`</code>) and the site links it. In Needs, address another agent as <code>@agent-id</code>. Workstream ids: ${ws}.</p></details>`;
+    return `<section class="page-h"><div><h1>Agents</h1><p>What each agent is trying to do, its plan, what it has found and where to check it, and what it needs from the others. Every agent reports through one file on the <code>agents</code> branch of the repository.</p></div>${fresh()}</section>
+      <div class="stats" style="margin-bottom:22px">${stats.map(([n, l]) => `<div class="stat"><b>${esc(n)}</b><span>${esc(l)}</span></div>`).join('')}</div>
+      ${ag.length ? `<div class="agents">${ag.map(agentCard).join('')}</div>` : `<div class="panel empty-agents"><h2>No agent has reported yet</h2><p class="panel-sub">${d.agents_branch ? 'The agents branch exists but holds no status file.' : 'The agents branch does not exist yet; the first publish creates it.'} The commits below still show what the agents change.</p></div>`}
+      <section class="two">
+        <div class="panel"><div class="panel-h"><h2>Requests between agents</h2><span class="kicker">${reqs.length}</span></div>
+          ${reqs.length ? reqs.map((r) => `<div class="req"><div class="m">${agentChip(r.from.id)} → ${r.to.length ? r.to.map(agentChip).join(' ') : '<span class="chip">anyone</span>'}</div><p>${mdi(r.text)}</p></div>`).join('') : '<p class="muted">None open.</p>'}
+          ${quiet.length ? `<h3 class="sub-h">Committing without a status file</h3>${quiet.map((q) => `<div class="req"><div class="m"><b>${esc(q.who)}</b>${q.owner && q.owner !== q.who ? ` · ${esc(q.owner)}` : ''} · ${plural(q.n_week, 'change')} this week · last ${ago(q.last.t)}</div><p>${what(q.last, true)}</p>${(q.ws || []).slice(0, 2).map(wsChip).join(' ')}</div>`).join('')}` : ''}
+        </div>
+        <div class="panel"><div class="panel-h"><h2>Reports</h2><span class="live-pill">LIVE</span></div>
+          <p class="panel-sub">Every published update of a status file, newest first.</p>
+          ${(d.agent_events || []).slice(0, 20).map(msg).join('') || '<p class="muted">No reports yet.</p>'}</div>
+      </section>
+      ${join}`;
+  }
+
+  function agentCard(a) {
+    const done = a.plan.filter((s) => s.done).length;
+    const next = a.plan.find((s) => !s.done);
+    const w = a.workstream && wsById(a.workstream);
+    return `<article class="agent s-${esc(a.state)}" data-agent="${esc(a.id)}" tabindex="0" role="button" aria-label="${esc(a.id)}: ${esc(a.task)}">
+      <div class="agent-top"><span class="dot a-${agentDot(a)}"></span><code class="agent-id">${esc(a.id)}</code><span class="faint small">${esc(a.owner)}</span><span class="chip state s-${esc(a.state)}">${STATE_LABEL[a.state] || esc(a.state)}</span></div>
+      <h3>${esc(a.task)}</h3>
+      ${a.trying ? `<p class="agent-try">${esc(plainMd(a.trying))}</p>` : ''}
+      ${a.plan.length ? `<div class="agent-plan"><div class="wbar"><i style="width:${(100 * done / a.plan.length).toFixed(0)}%;--c:var(--live)"></i></div><span class="small faint">${done}/${a.plan.length}${next ? ` · next: ${esc(plainMd(next.text))}` : ' · plan complete'}</span></div>` : ''}
+      ${a.results.length ? `<div class="agent-res"><span class="kicker">${plural(a.results.length, 'result')}</span><p>${mdi(a.results[0])}</p></div>` : ''}
+      ${a.needs.length ? `<div class="agent-needs">${a.needs.slice(0, 2).map((n) => `<p><span class="faint">→ ${n.to.map((t) => '@' + esc(t)).join(' ') || 'anyone'}:</span> ${esc(plainMd(n.text).replace(/@[a-z0-9._-]+:?\s*/g, ''))}</p>`).join('')}</div>` : ''}
+      <div class="agent-foot"><span>updated ${a.updated ? ago(a.updated) : '—'}${esc(staleNote(a))}</span>${w ? wsChip(w.id) : a.workstream_raw ? `<span class="chip">${esc(a.workstream_raw)}</span>` : ''}</div>
+    </article>`;
+  }
+
+  function agentDrawer(a) {
+    const done = a.plan.filter((s) => s.done).length;
+    const w = a.workstream && wsById(a.workstream);
+    return `<button class="btn-icon x" id="close" aria-label="Close">✕</button>
+      <div class="kicker">Agent${a.owner ? ' · ' + esc(a.owner) : ''}</div>
+      <h2 class="mono-h">${esc(a.id)}</h2>
+      <div class="chips"><span class="chip state s-${esc(a.state)}">${STATE_LABEL[a.state] || esc(a.state)}</span>${w ? wsChip(w.id) : ''}<span class="chip">updated ${a.updated ? ago(a.updated) : '—'}${esc(staleNote(a))}</span></div>
+      <p class="sum">${esc(a.task)}</p>
+      ${a.trying ? `<h3>Trying to do</h3><div class="md">${md(a.trying)}</div>` : ''}
+      ${a.plan.length ? `<h3>Plan · ${done}/${a.plan.length}</h3><ul class="plan">${a.plan.map((s) => `<li class="${s.done ? 'done' : ''}"><span>${s.done ? '✓' : '○'}</span>${mdi(s.text)}</li>`).join('')}</ul>` : ''}
+      ${a.results.length ? `<h3>Results</h3><ul class="res">${a.results.map((r) => `<li>${mdi(r)}</li>`).join('')}</ul>` : ''}
+      ${a.needs.length ? `<h3>Needs from others</h3>${a.needs.map((n) => `<div class="req"><div class="m">→ ${n.to.length ? n.to.map(agentChip).join(' ') : '<span class="chip">anyone</span>'}</div><p>${mdi(n.text)}</p></div>`).join('')}` : ''}
+      ${a.other.map((o) => `<h3>${esc(o.heading)}</h3><div class="md">${md(o.text)}</div>`).join('')}
+      ${a.history.length ? `<h3>History</h3>${a.history.map((h) => `<div class="ev"><div class="m">${ago(h.t)} · ${esc(when(h.t))}</div>${esc(h.subject)}${h.changes ? `<div class="small faint">${esc(h.changes.join(' · '))}</div>` : ''}</div>`).join('')}` : ''}
+      <p class="small" style="margin-top:22px"><a href="${esc(a.url)}" target="_blank" rel="noopener">agents/${esc(a.id)}.md on GitHub ↗</a></p>`;
+  }
+
   // ------------------------------------------------------------------ Activity
   function viewActivity() {
     const d = S.data;
@@ -525,7 +619,7 @@
     return `<section class="page-h"><div><h1>Activity</h1><p>What changed, day by day, in each line of work. Counts are commits and exports on the repository's branches, and edits of the paper.</p></div>${fresh()}</section>
       <div class="panel" style="margin-bottom:22px"><div class="heat-wrap"><table class="heat">${head}${body}</table></div></div>
       <div class="panel"><div class="panel-h"><h2>Everything, newest first</h2><span class="kicker">${evs.length} shown</span></div>
-        <div class="filters" role="group" aria-label="Filter">${[['all', 'All'], ['paper', 'Paper'], ['export', 'Exports'], ['commit', 'Branch commits']].map(([k, l]) => `<button data-filter="${k}" class="${filt === k ? 'on' : ''}">${l}</button>`).join('')}
+        <div class="filters" role="group" aria-label="Filter">${[['all', 'All'], ['agent', 'Agent reports'], ['paper', 'Paper'], ['export', 'Exports'], ['commit', 'Branch commits']].map(([k, l]) => `<button data-filter="${k}" class="${filt === k ? 'on' : ''}">${l}</button>`).join('')}
         ${fw ? `<button data-filter-ws="" class="on">${esc(fw.title)} ✕</button>` : ''}</div>
         ${fw && fw.n_events > fw.events.length ? `<p class="panel-sub">The latest ${fw.events.length} of ${fw.n_events} changes.</p>` : ''}
         ${evs.slice(0, 80).map(msg).join('') || '<p class="muted">Nothing in this filter.</p>'}</div>`;
@@ -535,8 +629,16 @@
   function renderDrawer() {
     if (!S.data) return;
     const dr = $('#drawer'), scrim = $('#scrim');
-    const w = S.sel && wsById(S.sel);
-    if (!w) { dr.hidden = true; scrim.hidden = true; document.body.style.overflow = ''; return; }
+    const agent = S.sel && S.sel.startsWith('a:') && agentById(S.sel.slice(2));
+    const w = !agent && S.sel && wsById(S.sel);
+    if (!w && !agent) { dr.hidden = true; scrim.hidden = true; document.body.style.overflow = ''; return; }
+    if (agent) {
+      const reopenedA = dr.hidden;
+      dr.innerHTML = agentDrawer(agent);
+      dr.hidden = false; scrim.hidden = false; document.body.style.overflow = 'hidden';
+      if (reopenedA) dr.scrollTop = 0;
+      return;
+    }
     const d = S.data;
     const a = act(w.last && w.last.t);
     const c = cluster(w.cluster);
@@ -570,8 +672,10 @@
 
   // ------------------------------------------------------------------ events
   document.addEventListener('click', (ev) => {
-    const t = ev.target.closest('[data-ws],[data-filter],[data-filter-ws],[data-filter-go],[data-go],#hub,#close,#scrim');
+    if (ev.target.closest('a[target="_blank"]')) return;
+    const t = ev.target.closest('[data-agent],[data-ws],[data-filter],[data-filter-ws],[data-filter-go],[data-go],#hub,#close,#scrim');
     if (!t) return;
+    if (t.dataset.agent) { ev.preventDefault(); go(S.view, 'a:' + t.dataset.agent); return; }
     if (t.id === 'close' || t.id === 'scrim') { go(S.view); return; }
     if (t.id === 'hub' || t.dataset.go === 'paper') { go('paper'); return; }
     if (t.dataset.filterGo !== undefined) {
@@ -588,7 +692,10 @@
     $('#drawer').hidden = true; $('#scrim').hidden = true; document.body.style.overflow = '';
     showLock();
   });
-  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && S.sel && S.data) go(S.view); });
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape' && S.sel && S.data) go(S.view);
+    if ((ev.key === 'Enter' || ev.key === ' ') && ev.target.matches && ev.target.matches('article[data-agent]')) { ev.preventDefault(); go(S.view, 'a:' + ev.target.dataset.agent); }
+  });
   window.addEventListener('hashchange', () => {
     if (!S.data) return;
     const before = S.view;
