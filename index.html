@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Research status</title>
+  <meta name="description" content="Status page of a research group.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cellipse cx='16' cy='8' rx='11' ry='4' fill='none' stroke='%231c1b19' stroke-width='2'/%3E%3Cpath d='M5 8v16c0 2.2 4.9 4 11 4s11-1.8 11-4V8' fill='none' stroke='%231c1b19' stroke-width='2'/%3E%3Ccircle cx='12' cy='17' r='1.6' fill='%23b27a1c'/%3E%3Ccircle cx='19' cy='21' r='1.6' fill='%232d7d6e'/%3E%3Ccircle cx='17' cy='14' r='1.6' fill='%235b55a6'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="#/live" aria-label="Live view">
+      <span class="mark" id="brand-title">Research status</span>
+      <span class="tagline" id="tagline"></span>
+    </a>
+    <nav class="nav" aria-label="Views">
+      <a href="#/live" data-view="live">Live</a>
+      <a href="#/map" data-view="map">Map</a>
+      <a href="#/paper" data-view="paper">Paper</a>
+      <a href="#/activity" data-view="activity">Activity</a>
+    </nav>
+    <div class="top-right">
+      <a class="btn-ghost" id="repo-link" href="#" target="_blank" rel="noopener" hidden>GitHub</a>
+      <button class="btn-ghost" id="lock" type="button" hidden title="Forget the password on this device">Lock</button>
+      <button class="btn-icon" id="theme" type="button" aria-label="Switch light or dark theme" title="Light / dark">
+        <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M10 2.5a7.5 7.5 0 1 0 0 15z" fill="currentColor"/><circle cx="10" cy="10" r="7.5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+      </button>
+    </div>
+  </header>
+  <div class="ticker" id="ticker" hidden></div>
+  <main id="view" tabindex="-1"><p class="loading">Loading…</p></main>
+  <div class="scrim" id="scrim" hidden></div>
+  <aside class="drawer" id="drawer" aria-label="Details" hidden></aside>
+  <footer class="foot" id="foot"></footer>
+  <script src="assets/app.js"></script>
+</body>
+</html>

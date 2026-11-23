@@ -1,0 +1,8 @@
+{
+ "v": 1,
+ "kdf": "PBKDF2-SHA256",
+ "iter": 600000,
+ "salt": "nx8UfY9wkzNi+2do4vElPQ==",
+ "verifier": "dfQxQ9MNrWLNmD/O9zvLjI6XKGXQTLSi7zZU5kf8NR8=",
+ "cipher": "AES-256-CBC + HMAC-SHA256"
+}
