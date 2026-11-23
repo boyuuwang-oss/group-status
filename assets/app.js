@@ -194,7 +194,23 @@
     } catch (_) { return null; }
   }
 
+  // The published copy is cached by browsers for up to 10 minutes. When a newer build is out, open the page again under
+  // a new URL, which no cache holds, so the new code is loaded (at most once per build, in case a cache lags).
+  async function checkBuild() {
+    if (!window.SITE_BUILD) return;
+    try {
+      const r = await fetch(`data/build.json?ts=${Date.now()}`, { cache: 'no-store' });
+      if (!r.ok) return;
+      const { build } = await r.json();
+      if (!build || build === window.SITE_BUILD) return;
+      if (store(() => sessionStorage.getItem('rs-build-reload')) === build) return;
+      store(() => sessionStorage.setItem('rs-build-reload', build));
+      location.replace(`${location.pathname}?v=${encodeURIComponent(build)}${location.hash}`);
+    } catch (_) { /* offline: try again at the next poll */ }
+  }
+
   async function load(first = false) {
+    checkBuild();
     try {
       const d = await fetchStatus();
       // no key yet, or the saved key no longer opens the data; keep a lock screen that is already up (and its typing)
