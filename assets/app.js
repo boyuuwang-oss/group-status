@@ -4,6 +4,8 @@
   'use strict';
 
   const POLL_MS = 60_000;
+  // run after the browser has laid the page out; the timer covers background tabs, where frames are paused
+  const afterLayout = (fn) => { let done = false; const run = () => { if (!done) { done = true; fn(); } }; requestAnimationFrame(run); setTimeout(run, 120); };
   const H = 3600e3, D = 24 * H;
   const S = { data: null, view: 'live', sel: null, feedFilter: 'all', feedWs: null, mode: null, keyinfo: null, key: null, atlas: null, atlasUrl: null };
   const $ = (q, el = document) => el.querySelector(q);
@@ -286,8 +288,9 @@
     const v = $('#view');
     const keep = window.scrollY;
     v.innerHTML = ({ live: viewLive, agents: viewAgents, map: viewMap, paper: viewPaper, activity: viewActivity })[S.view]();
-    if (S.view === 'live') requestAnimationFrame(drawWires);
-    if (S.view === 'map') requestAnimationFrame(fitMap);
+    if (S.view === 'live') afterLayout(drawWires);
+    if (S.view === 'map') afterLayout(() => { fitMap(); focusNode(); });
+    if (S.view === 'live') afterLayout(focusSeat);
     window.scrollTo(0, keep);
     renderDrawer();
     $('#foot').innerHTML = `Snapshot ${esc(when(d.generated))} · paper ${esc(d.paper.head || '—')} · ${esc(d.project.repo)} · refreshed by <code>website/collect.py</code>`;
@@ -480,12 +483,46 @@
     const c = cluster(w.cluster);
     const s = st(w);
     const who = w.last ? `${short(w.last.t)} · ${w.last.who}` : w.planned ? 'planned' : '—';
-    return `<button class="node${w.planned ? ' planned' : ''}${S.sel === w.id ? ' sel' : ''}" data-ws="${esc(w.id)}" style="left:${p.x}px;top:${p.y}px;width:${CW}px;height:${CH}px;--hue:${hue(w.cluster)};--c:var(--st-${s === 'none' ? 'out' : s})">
+    const ag = (w.agents || []).map(agentById).filter(Boolean);
+    return `<button class="node${w.planned ? ' planned' : ''}${ag.length ? ' has-agent' : ''}${S.sel === w.id ? ' sel' : ''}" data-ws="${esc(w.id)}" style="left:${p.x}px;top:${p.y}px;width:${CW}px;height:${CH}px;--hue:${hue(w.cluster)};--c:var(--st-${s === 'none' ? 'out' : s})">
       <div class="node-top"><span class="node-cl">${esc(c.title)}</span>${stChip(w)}</div>
       <h3>${esc(w.title)}</h3>
       <p>${esc(w.summary || '')}</p>
+      ${ag.length ? `<div class="node-agent"><span class="dot a-${agentDot(ag[0])}"></span>${esc(ag.map((x) => x.id).join(', '))} · ${esc(ag[0].state)}</div>` : ''}
       <div class="node-foot"><span class="dot a-${a}"></span><span class="who">${esc(who)}</span>${spark(w.daily)}</div>
     </button>`;
+  }
+
+  // the workstream a link points at: a card id, or the workstream of an agent
+  const selWs = () => (!S.sel ? null : S.sel.startsWith('a:') ? (agentById(S.sel.slice(2)) || {}).workstream : S.sel);
+  function flash(el) { el.classList.toggle('flash', false); void el.offsetWidth; el.classList.toggle('flash', true); }
+
+  function focusNode() {
+    const id = selWs();
+    const node = id && document.querySelector(`.node[data-ws="${CSS.escape(id)}"]`);
+    const wrap = $('#map-wrap'), cv = $('#map-canvas');
+    if (!node || !wrap || !cv) return;
+    const m = /scale\(([\d.]+)\)/.exec(cv.style.transform || '');
+    const s = m ? parseFloat(m[1]) : 1;
+    const dr = $('#drawer');
+    const wr = wrap.getBoundingClientRect();
+    const covered = !dr.hidden && innerWidth >= 900 ? Math.max(0, wr.right - dr.getBoundingClientRect().left) : 0;
+    const visible = Math.max(240, wrap.clientWidth - covered);
+    const x = 28 + (parseFloat(node.style.left) + CW / 2) * s;
+    wrap.scrollTo({ left: Math.max(0, x - visible / 2), behavior: 'auto' });
+    const r = node.getBoundingClientRect();
+    if (r.top < 70 || r.bottom > innerHeight) window.scrollTo({ top: scrollY + r.top - Math.max(80, (innerHeight - r.height) / 2), behavior: 'auto' });
+    flash(node);
+  }
+
+  function focusSeat() {
+    const id = selWs();
+    $$('.seat').forEach((n) => n.classList.toggle('sel', n.dataset.ws === id));
+    const seat = id && document.querySelector(`.seat[data-ws="${CSS.escape(id)}"]`);
+    if (!seat) return;
+    const r = seat.getBoundingClientRect();
+    if (r.top < 70 || r.bottom > innerHeight) window.scrollTo({ top: scrollY + r.top - Math.max(80, (innerHeight - r.height) / 2), behavior: 'auto' });
+    flash(seat);
   }
 
   function fitMap() {
@@ -602,6 +639,38 @@ python3 /tmp/agent_status.py inbox YOUR-AGENT  # requests to you`;
     </article>`;
   }
 
+  /** Links from a details panel to the same thing elsewhere on the site. */
+  function navLinks(w, fromAgent) {
+    const links = [];
+    if (fromAgent) links.push(`<button class="nav-link" data-ws="${esc(w.id)}">◧ ${esc(w.title)}</button>`);
+    if (S.view !== 'live' || fromAgent) links.push(`<a class="nav-link" href="#/live/${esc(encodeURIComponent(w.id))}">● Live card</a>`);
+    if (S.view !== 'map' || fromAgent) links.push(`<a class="nav-link" href="#/map/${esc(encodeURIComponent(w.id))}">⌗ Show on map</a>`);
+    if (!fromAgent) (w.agents || []).forEach((id) => links.push(`<button class="nav-link" data-agent="${esc(id)}">◉ Agent card: ${esc(id)}</button>`));
+    if (!fromAgent && (w.paper.units || []).length) links.push(`<a class="nav-link" href="#/paper">¶ In the paper</a>`);
+    return `<nav class="nav-links" aria-label="Open elsewhere">${links.join('')}</nav>`;
+  }
+
+  /** The agents that report on a workstream, with their plans, and what other agents' reports say about it. */
+  function agentsOn(w) {
+    const ags = (w.agents || []).map(agentById).filter(Boolean);
+    let html = `<h3>Agents working on this</h3>`;
+    html += ags.length ? ags.map((a) => {
+      const done = a.plan.filter((x) => x.done).length;
+      return `<div class="ag-sum s-${esc(a.state)}">
+        <div class="ag-h">${agentChip(a.id)}<span class="chip state s-${esc(a.state)}">${STATE_LABEL[a.state] || esc(a.state)}</span><span class="faint small">${esc(a.owner)} · updated ${a.updated ? ago(a.updated) : '—'}${esc(staleNote(a))}</span></div>
+        <p class="ag-task">${esc(a.task)}</p>
+        ${a.plan.length ? `<div class="kicker">Plan · ${done}/${a.plan.length}</div><ul class="plan">${a.plan.map((x) => `<li class="${x.done ? 'done' : ''}"><span>${x.done ? '✓' : '○'}</span>${mdA(x.text)}</li>`).join('')}</ul>` : ''}
+        ${a.needs.length ? `<div class="kicker" style="margin-top:8px">Needs</div>${a.needs.map((n) => `<p class="ag-need">→ ${n.to.length ? n.to.map(agentChip).join(' ') : 'anyone'} ${mdA(askText(n.text))}</p>`).join('')}` : ''}
+        <button class="nav-link" data-agent="${esc(a.id)}">Full report: what it is trying to do, ${plural(a.results.length, 'result')}, history →</button>
+      </div>`;
+    }).join('') : `<p class="muted small">No agent publishes a status file for this line of work yet.</p>`;
+    if ((w.quiet_agents || []).length) html += `<p class="small faint">Also committing here without a status file: ${esc(w.quiet_agents.join(', '))}.</p>`;
+    if ((w.related || []).length) {
+      html += `<h3>In other agents' reports</h3>` + w.related.map((r) => `<div class="rel"><div class="m">${agentChip(r.agent)}<span class="faint">${r.kind === 'plan' ? (r.done ? '✓ plan step' : '○ plan step') : r.kind === 'need' ? 'request' : r.kind}</span></div><p>${mdA(r.kind === 'need' ? askText(r.text) : r.text)}</p></div>`).join('');
+    }
+    return html;
+  }
+
   function agentDrawer(a) {
     const done = a.plan.filter((s) => s.done).length;
     const w = a.workstream && wsById(a.workstream);
@@ -610,6 +679,7 @@ python3 /tmp/agent_status.py inbox YOUR-AGENT  # requests to you`;
       <h2 class="mono-h">${esc(a.id)}</h2>
       <div class="chips"><span class="chip state s-${esc(a.state)}">${STATE_LABEL[a.state] || esc(a.state)}</span>${w ? wsChip(w.id) : ''}<span class="chip">updated ${a.updated ? ago(a.updated) : '—'}${esc(staleNote(a))}</span></div>
       <p class="sum">${esc(a.task)}</p>
+      ${w ? navLinks(w, a) : ''}
       ${a.trying ? `<h3>Trying to do</h3><div class="md">${md(a.trying)}</div>` : ''}
       ${a.plan.length ? `<h3>Plan · ${done}/${a.plan.length}</h3><ul class="plan">${a.plan.map((s) => `<li class="${s.done ? 'done' : ''}"><span>${s.done ? '✓' : '○'}</span>${mdA(s.text)}</li>`).join('')}</ul>` : ''}
       ${a.results.length || a.results_intro ? `<h3>Results</h3>${a.results_intro ? `<p class="res-intro">${mdA(a.results_intro)}</p>` : ''}<ul class="res">${a.results.map((r) => `<li>${mdA(r)}</li>`).join('')}</ul>` : ''}
@@ -617,6 +687,7 @@ python3 /tmp/agent_status.py inbox YOUR-AGENT  # requests to you`;
       ${a.needs.length ? `<h3>Needs from others</h3>${a.needs.map((n) => `<div class="req"><div class="m">→ ${n.to.length ? n.to.map(agentChip).join(' ') : '<span class="chip">anyone</span>'}</div><p>${mdA(askText(n.text))}</p></div>`).join('')}` : ''}
       ${a.other.map((o) => `<h3>${esc(o.heading)}</h3><div class="md">${md(o.text)}</div>`).join('')}
       ${a.history.length ? `<h3>History</h3>${a.history.map((h) => `<div class="ev"><div class="m">${ago(h.t)} · ${esc(when(h.t))}</div>${esc(h.subject)}${h.changes ? `<div class="small faint">${esc(h.changes.join(' · '))}</div>` : ''}</div>`).join('')}` : ''}
+      ${a.docs && a.docs.length ? `<h3>Documents</h3><ul class="res">${a.docs.map((doc) => `<li><a href="${esc(doc.url)}" target="_blank" rel="noopener">${esc(doc.name)} ↗</a></li>`).join('')}</ul>` : ''}
       <p class="small" style="margin-top:22px"><a href="${esc(a.url)}" target="_blank" rel="noopener">agents/${esc(a.id)}.md on GitHub ↗</a></p>`;
   }
 
@@ -645,16 +716,30 @@ python3 /tmp/agent_status.py inbox YOUR-AGENT  # requests to you`;
   }
 
   // ------------------------------------------------------------------ drawer
+  // Wide screens: the panel sits beside the page, which narrows (and stays scrollable). Narrow screens: it covers the page.
+  const wide = () => matchMedia('(min-width: 1200px)').matches;
+  function panelLayout(open) {
+    const was = document.body.classList.contains('panel-open');
+    document.documentElement.style.setProperty('--hdr', `${$('.top').offsetHeight}px`);
+    document.body.classList.toggle('panel-open', open);
+    document.body.style.overflow = open && !wide() ? 'hidden' : '';
+    if (was !== open) relayout();
+  }
+  function relayout() {
+    if (S.view === 'live') afterLayout(() => { drawWires(); });
+    if (S.view === 'map') afterLayout(() => { fitMap(); focusNode(); });
+  }
+
   function renderDrawer() {
     if (!S.data) return;
     const dr = $('#drawer'), scrim = $('#scrim');
     const agent = S.sel && S.sel.startsWith('a:') && agentById(S.sel.slice(2));
     const w = !agent && S.sel && wsById(S.sel);
-    if (!w && !agent) { dr.hidden = true; scrim.hidden = true; document.body.style.overflow = ''; return; }
+    if (!w && !agent) { dr.hidden = true; scrim.hidden = true; panelLayout(false); return; }
     if (agent) {
       const reopenedA = dr.hidden;
       dr.innerHTML = agentDrawer(agent);
-      dr.hidden = false; scrim.hidden = false; document.body.style.overflow = 'hidden';
+      dr.hidden = false; scrim.hidden = false; panelLayout(true);
       if (reopenedA) dr.scrollTop = 0;
       return;
     }
@@ -669,6 +754,8 @@ python3 /tmp/agent_status.py inbox YOUR-AGENT  # requests to you`;
       <h2>${esc(w.title)}</h2>
       <div class="chips">${stChip(w)}<span class="chip"><span class="dot a-${a}"></span>${ACT_LABEL[a]}</span>${w.auto ? '<span class="chip st-empty">not yet in map.json</span>' : ''}${(w.people || []).map((p) => `<span class="chip">${esc(p)}</span>`).join('')}</div>
       <p class="sum">${esc(w.summary || '')}</p>
+      ${navLinks(w, null)}
+      ${agentsOn(w)}
       ${[[w.last_work, 'Latest work'], [w.last_paper, 'Latest paper edit']].filter(([e]) => e).map(([e, label]) => `<h3>${label}</h3><div class="now-box"><div class="meta">${whoTag(e)} · ${ago(e.t)} · ${esc(when(e.t))}</div><p class="q">${what(e, true, w.id)}</p>
         ${e.new && e.new[0] && e.new[0].doc && e.new[0].doc.text ? `<p class="muted small" style="margin:6px 0 0">${esc(e.new[0].doc.text)}</p>` : ''}
         ${e.url ? `<div class="meta" style="margin-top:6px"><a href="${esc(e.url)}" target="_blank" rel="noopener">${e.kind === 'paper' ? 'Overleaf' : esc(e.sha)} ↗</a></div>` : ''}</div>`).join('')}
@@ -683,10 +770,10 @@ python3 /tmp/agent_status.py inbox YOUR-AGENT  # requests to you`;
       ${w.sources && w.sources.length ? `<h3>Where it lives</h3><div class="small mono faint">${w.sources.map((s) => `${esc(s.branch)}: ${esc((s.paths || []).join(', '))}`).join('<br>')}</div>` : ''}
       <p class="small faint" style="margin-top:22px"><a href="#/activity" data-filter-go="${esc(w.id)}">Show all its activity →</a></p>`;
     const reopened = dr.hidden;
-    dr.hidden = false; scrim.hidden = false;
-    document.body.style.overflow = 'hidden';
+    dr.hidden = false; scrim.hidden = false; panelLayout(true);
     if (reopened) dr.scrollTop = 0;
     $$('.node').forEach((n) => n.classList.toggle('sel', n.dataset.ws === w.id));
+    $$('.seat').forEach((n) => n.classList.toggle('sel', n.dataset.ws === w.id));
   }
 
   // ------------------------------------------------------------------ events
@@ -708,7 +795,7 @@ python3 /tmp/agent_status.py inbox YOUR-AGENT  # requests to you`;
   document.addEventListener('submit', (ev) => { if (ev.target.id === 'unlock') unlock(ev); });
   $('#lock').addEventListener('click', () => {
     forgetKey(); S.atlasUrl = null; $('#lock').hidden = true;
-    $('#drawer').hidden = true; $('#scrim').hidden = true; document.body.style.overflow = '';
+    $('#drawer').hidden = true; $('#scrim').hidden = true; panelLayout(false);
     showLock();
   });
   document.addEventListener('keydown', (ev) => {
@@ -719,10 +806,14 @@ python3 /tmp/agent_status.py inbox YOUR-AGENT  # requests to you`;
     if (!S.data) return;
     const before = S.view;
     route();
-    if (before !== S.view) { render(); window.scrollTo(0, 0); } else { renderDrawer(); }
+    if (before !== S.view) { render(); if (!S.sel) window.scrollTo(0, 0); } else {
+      renderDrawer();
+      if (S.view === 'map') afterLayout(focusNode);
+      if (S.view === 'live') afterLayout(focusSeat);
+    }
   });
   let rt;
-  window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (S.view === 'live') drawWires(); if (S.view === 'map') fitMap(); }, 80); });
+  window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (!$('#drawer').hidden) panelLayout(true); relayout(); }, 80); });
   setInterval(() => $$('[data-ago]').forEach((el) => { el.textContent = ago(el.dataset.ago); }), 15_000);
 
   // theme: follow the system unless the viewer picked one
