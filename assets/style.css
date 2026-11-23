@@ -307,15 +307,15 @@ table.t .grp td { padding-top: 14px; font: 600 11px var(--sans); color: var(--in
 .chip.k-agent { --c: var(--c5); }
 .chip.agent-chip { --c: var(--ink-2); cursor: pointer; font-family: var(--mono); }
 .agents { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr)); gap: 18px; }
-.agent { display: flex; flex-direction: column; gap: 9px; padding: 16px 18px 14px; border: 1px solid var(--line); border-radius: 16px;
+.agent-card { display: flex; flex-direction: column; gap: 9px; padding: 16px 18px 14px; border: 1px solid var(--line); border-radius: 16px;
   background: var(--card); box-shadow: var(--shadow); cursor: pointer; min-width: 0; border-top: 3px solid var(--live); }
-.agent:hover { box-shadow: var(--shadow-lg); }
-.agent.s-blocked { border-top-color: var(--c4); } .agent.s-waiting { border-top-color: var(--st-empty); }
-.agent.s-done { border-top-color: var(--st-written); } .agent.s-idle { border-top-color: var(--ink-3); }
+.agent-card:hover { box-shadow: var(--shadow-lg); }
+.agent-card.s-blocked { border-top-color: var(--c4); } .agent-card.s-waiting { border-top-color: var(--st-empty); }
+.agent-card.s-done { border-top-color: var(--st-written); } .agent-card.s-idle { border-top-color: var(--ink-3); }
 .agent-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .agent-top .chip { margin-left: auto; }
 .agent-id { font: 600 13px var(--mono); }
-.agent h3 { margin: 0; font: 500 19px/1.3 var(--serif); }
+.agent-card h3 { margin: 0; font: 500 19px/1.3 var(--serif); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .agent-try { margin: 0; font-size: 13px; color: var(--ink-2); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .agent-plan { display: grid; gap: 4px; }
 .agent-res p, .agent-needs p { margin: 2px 0 0; font-size: 13px; overflow-wrap: anywhere; }
@@ -337,12 +337,13 @@ table.t .grp td { padding-top: 14px; font: 600 11px var(--sans); color: var(--in
 pre.code { margin: 0 0 12px; padding: 12px 14px; border-radius: 10px; background: var(--bg-2); font: 12px/1.6 var(--mono); overflow-x: auto; white-space: pre; }
 .empty-agents { margin-bottom: 4px; }
 .empty-agents h2 { margin: 0 0 6px; font: 400 26px/1.2 var(--serif); }
-.seat-line.agent { margin-top: 2px; color: var(--c5); align-items: center; }
-.seat-line.agent .dot { width: 6px; height: 6px; }
+.seat-line.seat-agent { margin-top: 2px; color: var(--c5); align-items: center; }
+.seat-line.seat-agent .dot { width: 6px; height: 6px; }
 .drawer h2.mono-h { font: 600 26px/1.2 var(--mono); letter-spacing: -.01em; }
 ul.plan, ul.res { margin: 0; padding: 0; list-style: none; }
 ul.plan li, ul.res li { padding: 5px 0; border-top: 1px solid var(--line); font-size: 13.5px; overflow-wrap: anywhere; }
 ul.plan li:first-child, ul.res li:first-child { border-top: 0; }
+.res-intro { margin: 0 0 6px; font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
 ul.plan li span { display: inline-block; width: 20px; color: var(--ink-3); }
 ul.plan li.done { color: var(--ink-2); }
 ul.plan li.done span { color: var(--live); }

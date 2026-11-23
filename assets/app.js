@@ -75,6 +75,8 @@
     return a.state;
   }
   const staleNote = (a) => (a.state === 'working' && a.updated && age(a.updated) > D ? ' · not updated for a day' : '');
+  const mdA = (s) => mdi(s).replace(/<code>([a-z0-9][a-z0-9._-]+)<\/code>/g, (m, id) => (agentById(id) ? agentChip(id) : m));
+  const askText = (t) => String(t || '').replace(/^\s*(@[a-z0-9._-]+[\s,:;]*)+/, '');
   const agentChip = (id) => { const a = agentById(id); return a ? `<button class="chip agent-chip" data-agent="${esc(id)}"><span class="dot a-${agentDot(a)}"></span>${esc(id)}</button>` : `<span class="chip">@${esc(id)}</span>`; };
   const wsChip = (id) => { const w = wsById(id); return w ? `<button class="chip ws" style="--hue:${hue(w.cluster)}" data-ws="${esc(id)}">${esc(w.title)}</button>` : ''; };
   const ST_SHORT = { written: 'in paper', draft: 'drafting', empty: 'to write', out: 'not in draft', none: '' };
@@ -352,7 +354,7 @@
   function agentLine(w) {
     const a = (w.agents || []).map(agentById).filter(Boolean)[0];
     if (!a) return '';
-    return `<div class="seat-line agent"><span class="dot a-${agentDot(a)}"></span><span class="what">${esc(a.id)} · ${esc(a.state)}: ${esc(a.task)}</span></div>`;
+    return `<div class="seat-line seat-agent"><span class="dot a-${agentDot(a)}"></span><span class="what">${esc(a.id)} · ${esc(a.state)}: ${esc(a.task)}</span></div>`;
   }
 
   function hubCell() {
@@ -559,7 +561,7 @@ python3 /tmp/agent_status.py inbox YOUR-AGENT  # requests to you`;
       ${ag.length ? `<div class="agents">${ag.map(agentCard).join('')}</div>` : `<div class="panel empty-agents"><h2>No agent has reported yet</h2><p class="panel-sub">${d.agents_branch ? 'The agents branch exists but holds no status file.' : 'The agents branch does not exist yet; the first publish creates it.'} The commits below still show what the agents change.</p></div>`}
       <section class="two">
         <div class="panel"><div class="panel-h"><h2>Requests between agents</h2><span class="kicker">${reqs.length}</span></div>
-          ${reqs.length ? reqs.map((r) => `<div class="req"><div class="m">${agentChip(r.from.id)} → ${r.to.length ? r.to.map(agentChip).join(' ') : '<span class="chip">anyone</span>'}</div><p>${mdi(r.text)}</p></div>`).join('') : '<p class="muted">None open.</p>'}
+          ${reqs.length ? reqs.map((r) => `<div class="req"><div class="m">${agentChip(r.from.id)} → ${r.to.length ? r.to.map(agentChip).join(' ') : '<span class="chip">anyone</span>'}</div><p>${mdA(askText(r.text))}</p></div>`).join('') : '<p class="muted">None open.</p>'}
           ${quiet.length ? `<h3 class="sub-h">Committing without a status file</h3>${quiet.map((q) => `<div class="req"><div class="m"><b>${esc(q.who)}</b>${q.owner && q.owner !== q.who ? ` · ${esc(q.owner)}` : ''} · ${plural(q.n_week, 'change')} this week · last ${ago(q.last.t)}</div><p>${what(q.last, true)}</p>${(q.ws || []).slice(0, 2).map(wsChip).join(' ')}</div>`).join('')}` : ''}
         </div>
         <div class="panel"><div class="panel-h"><h2>Reports</h2><span class="live-pill">LIVE</span></div>
@@ -573,13 +575,13 @@ python3 /tmp/agent_status.py inbox YOUR-AGENT  # requests to you`;
     const done = a.plan.filter((s) => s.done).length;
     const next = a.plan.find((s) => !s.done);
     const w = a.workstream && wsById(a.workstream);
-    return `<article class="agent s-${esc(a.state)}" data-agent="${esc(a.id)}" tabindex="0" role="button" aria-label="${esc(a.id)}: ${esc(a.task)}">
+    return `<article class="agent-card s-${esc(a.state)}" data-agent="${esc(a.id)}" tabindex="0" role="button" aria-label="${esc(a.id)}: ${esc(a.task)}">
       <div class="agent-top"><span class="dot a-${agentDot(a)}"></span><code class="agent-id">${esc(a.id)}</code><span class="faint small">${esc(a.owner)}</span><span class="chip state s-${esc(a.state)}">${STATE_LABEL[a.state] || esc(a.state)}</span></div>
       <h3>${esc(a.task)}</h3>
       ${a.trying ? `<p class="agent-try">${esc(plainMd(a.trying))}</p>` : ''}
       ${a.plan.length ? `<div class="agent-plan"><div class="wbar"><i style="width:${(100 * done / a.plan.length).toFixed(0)}%;--c:var(--live)"></i></div><span class="small faint">${done}/${a.plan.length}${next ? ` · next: ${esc(plainMd(next.text))}` : ' · plan complete'}</span></div>` : ''}
-      ${a.results.length ? `<div class="agent-res"><span class="kicker">${plural(a.results.length, 'result')}</span><p>${mdi(a.results[0])}</p></div>` : ''}
-      ${a.needs.length ? `<div class="agent-needs">${a.needs.slice(0, 2).map((n) => `<p><span class="faint">→ ${n.to.map((t) => '@' + esc(t)).join(' ') || 'anyone'}:</span> ${esc(plainMd(n.text).replace(/@[a-z0-9._-]+:?\s*/g, ''))}</p>`).join('')}</div>` : ''}
+      ${a.results.length || a.results_intro ? `<div class="agent-res"><span class="kicker">${a.results.length ? plural(a.results.length, 'result') : 'results'}</span><p>${mdA(a.results[0] || a.results_intro)}</p></div>` : ''}
+      ${a.needs.length ? `<div class="agent-needs">${a.needs.slice(0, 2).map((n) => `<p><span class="faint">→ ${n.to.map((t) => '@' + esc(t)).join(' ') || 'anyone'}:</span> ${esc(plainMd(askText(n.text)))}</p>`).join('')}</div>` : ''}
       <div class="agent-foot"><span>updated ${a.updated ? ago(a.updated) : '—'}${esc(staleNote(a))}</span>${w ? wsChip(w.id) : a.workstream_raw ? `<span class="chip">${esc(a.workstream_raw)}</span>` : ''}</div>
     </article>`;
   }
@@ -593,9 +595,10 @@ python3 /tmp/agent_status.py inbox YOUR-AGENT  # requests to you`;
       <div class="chips"><span class="chip state s-${esc(a.state)}">${STATE_LABEL[a.state] || esc(a.state)}</span>${w ? wsChip(w.id) : ''}<span class="chip">updated ${a.updated ? ago(a.updated) : '—'}${esc(staleNote(a))}</span></div>
       <p class="sum">${esc(a.task)}</p>
       ${a.trying ? `<h3>Trying to do</h3><div class="md">${md(a.trying)}</div>` : ''}
-      ${a.plan.length ? `<h3>Plan · ${done}/${a.plan.length}</h3><ul class="plan">${a.plan.map((s) => `<li class="${s.done ? 'done' : ''}"><span>${s.done ? '✓' : '○'}</span>${mdi(s.text)}</li>`).join('')}</ul>` : ''}
-      ${a.results.length ? `<h3>Results</h3><ul class="res">${a.results.map((r) => `<li>${mdi(r)}</li>`).join('')}</ul>` : ''}
-      ${a.needs.length ? `<h3>Needs from others</h3>${a.needs.map((n) => `<div class="req"><div class="m">→ ${n.to.length ? n.to.map(agentChip).join(' ') : '<span class="chip">anyone</span>'}</div><p>${mdi(n.text)}</p></div>`).join('')}` : ''}
+      ${a.plan.length ? `<h3>Plan · ${done}/${a.plan.length}</h3><ul class="plan">${a.plan.map((s) => `<li class="${s.done ? 'done' : ''}"><span>${s.done ? '✓' : '○'}</span>${mdA(s.text)}</li>`).join('')}</ul>` : ''}
+      ${a.results.length || a.results_intro ? `<h3>Results</h3>${a.results_intro ? `<p class="res-intro">${mdA(a.results_intro)}</p>` : ''}<ul class="res">${a.results.map((r) => `<li>${mdA(r)}</li>`).join('')}</ul>` : ''}
+      ${!a.needs.length ? '<h3>Needs from others</h3><p class="muted small">None.</p>' : ''}
+      ${a.needs.length ? `<h3>Needs from others</h3>${a.needs.map((n) => `<div class="req"><div class="m">→ ${n.to.length ? n.to.map(agentChip).join(' ') : '<span class="chip">anyone</span>'}</div><p>${mdA(askText(n.text))}</p></div>`).join('')}` : ''}
       ${a.other.map((o) => `<h3>${esc(o.heading)}</h3><div class="md">${md(o.text)}</div>`).join('')}
       ${a.history.length ? `<h3>History</h3>${a.history.map((h) => `<div class="ev"><div class="m">${ago(h.t)} · ${esc(when(h.t))}</div>${esc(h.subject)}${h.changes ? `<div class="small faint">${esc(h.changes.join(' · '))}</div>` : ''}</div>`).join('')}` : ''}
       <p class="small" style="margin-top:22px"><a href="${esc(a.url)}" target="_blank" rel="noopener">agents/${esc(a.id)}.md on GitHub ↗</a></p>`;
