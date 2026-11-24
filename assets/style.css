@@ -160,9 +160,12 @@ button.chip { background-clip: padding-box; }
 @keyframes ring { from { transform: scale(1); opacity: .9; } to { transform: scale(1.35); opacity: 0; } }
 .hub-cap { font: 11px/1.5 var(--mono); color: var(--ink-2); max-width: 260px; }
 
+/* Endless motion repaints the board on every frame. None for viewers who ask for less motion, and none while nobody is
+   looking: app.js sets html.still when the page is hidden or has had no input for a few minutes. */
 @media (prefers-reduced-motion: reduce) {
   .wires path.w-now, .dot.a-now, .hub-disc.a-now::after { animation: none; }
 }
+.still .wires path.w-now, .still .dot.a-now, .still .hub-disc.a-now::after { animation: none; }
 
 /* ---------- panels under the board */
 .two { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 22px; margin-top: 22px; align-items: start; }

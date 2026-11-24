@@ -7,7 +7,7 @@
   // run after the browser has laid the page out; the timer covers background tabs, where frames are paused
   const afterLayout = (fn) => { let done = false; const run = () => { if (!done) { done = true; fn(); } }; requestAnimationFrame(run); setTimeout(run, 120); };
   const H = 3600e3, D = 24 * H;
-  const S = { data: null, view: 'live', sel: null, feedFilter: 'all', feedWs: null, mode: null, keyinfo: null, key: null, atlas: null, atlasUrl: null };
+  const S = { data: null, view: 'live', sel: null, feedFilter: 'all', feedWs: null, mode: null, keyinfo: null, key: null, atlas: null, atlasUrl: null, loadedAt: 0 };
   const $ = (q, el = document) => el.querySelector(q);
   const $$ = (q, el = document) => [...el.querySelectorAll(q)];
 
@@ -212,6 +212,7 @@
   }
 
   async function load(first = false) {
+    S.loadedAt = Date.now();
     checkBuild();
     try {
       const d = await fetchStatus();
@@ -814,7 +815,34 @@ python3 /tmp/agent_status.py inbox YOUR-AGENT  # requests to you`;
   });
   let rt;
   window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (!$('#drawer').hidden) panelLayout(true); relayout(); }, 80); });
-  setInterval(() => $$('[data-ago]').forEach((el) => { el.textContent = ago(el.dataset.ago); }), 15_000);
+  setInterval(() => {
+    if (document.hidden) return;
+    $$('[data-ago]').forEach((el) => { const t = ago(el.dataset.ago); if (el.textContent !== t) el.textContent = t; });
+  }, 15_000);
+
+  // The flowing wires and the pulsing dots repaint the board on every frame, which costs the machine's GPU as long as
+  // the page is open. Run them only while someone is looking: stop when the page is hidden or after IDLE_MS without
+  // input (html.still), start again on the next input. A hidden page also stops polling and catches up when shown.
+  const IDLE_MS = 3 * 60_000;
+  let idleTimer = 0, lastWake = 0;
+  const setStill = (still) => document.documentElement.classList.toggle('still', still);
+  function wake() {
+    if (document.hidden) return;
+    const now = Date.now();
+    if (now - lastWake < 1000 && !document.documentElement.classList.contains('still')) return;
+    lastWake = now;
+    setStill(false);
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => setStill(true), IDLE_MS);
+  }
+  ['pointermove', 'pointerdown', 'keydown', 'wheel', 'touchstart', 'focus']
+    .forEach((t) => window.addEventListener(t, wake, { capture: true, passive: true }));
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { clearTimeout(idleTimer); setStill(true); return; }
+    wake();
+    if (Date.now() - S.loadedAt >= POLL_MS) load();
+  });
+  if (document.hidden) setStill(true); else wake();
 
   // theme: follow the system unless the viewer picked one
   const themeKey = 'pc-theme';
@@ -828,5 +856,5 @@ python3 /tmp/agent_status.py inbox YOUR-AGENT  # requests to you`;
 
   route();
   load(true);
-  setInterval(load, POLL_MS);
+  setInterval(() => { if (!document.hidden) load(); }, POLL_MS);
 })();
