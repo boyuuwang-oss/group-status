@@ -260,7 +260,7 @@
     $('#view').innerHTML = `<section class="lock">
       <div class="lockup">
         <div class="lock-mark" id="lock-mark" tabindex="0" role="img" aria-label="3dCFT.com logo: a radial random lattice, re-sampled continuously, coloured from gold at the centre to cyan at the rim"><canvas id="rrl" aria-hidden="true"></canvas></div>
-        <div class="lock-word"><h1 class="wordmark">${WORDMARK}</h1><p class="motto">Solving conformal field theory in three dimensions</p>
+        <div class="lock-word"><h1 class="wordmark">${WORDMARK}</h1><p class="motto">Interactively solving conformal field theory in three dimensions</p>
           <form class="lock-card" id="unlock" data-state="${open ? 'open' : 'locked'}">${open ? openCard() : lockCard(msgText)}</form></div>
       </div>
       <button class="lock-ctl" id="lock-anim" type="button" aria-pressed="false">Pause animation</button>
