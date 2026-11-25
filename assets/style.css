@@ -239,6 +239,12 @@ table.t .grp td { padding-top: 14px; font: 600 11px var(--sans); color: var(--in
   box-shadow: 0 0 0 2px rgba(255, 255, 255, .9), inset 0 0 0 1.5px rgba(255, 255, 255, .9); transition: opacity .15s, transform .15s; }
 .apin.extra, .apin.mini { width: 17px; height: 17px; margin: -8.5px 0 0 -8.5px; border-width: 2px; }
 .apin.extra { border-style: dashed; }
+/* an RG flow is the figure's own arrow: nothing is drawn over it, the path only catches the pointer */
+.aflow .band { fill: none; stroke: transparent; stroke-width: 16; stroke-linecap: round; pointer-events: stroke; cursor: pointer; }
+.atlas-lines .foot { fill: #1c1b19; stroke: #fff; stroke-width: 1.5; }
+.atlas-stage.focus .atlas-lines g.lead:not(.hot) .foot { opacity: .2; }
+.atlas-legend .flowsw { position: relative; width: 20px; height: 0; border-top: 1.5px solid currentColor; }
+.atlas-legend .flowsw::after { content: ""; position: absolute; right: -1px; top: -4.5px; border: 3.5px solid transparent; border-left: 6px solid currentColor; border-right: 0; }
 /* changed in the last 6 h: a second ring, which pulses three times when the page loads or the data change */
 .apin.p-now::before, .apin.p-now::after { content: ""; position: absolute; inset: -6px; border-radius: 50%; border: 1.5px solid var(--pc); pointer-events: none; }
 .apin.p-now::before { opacity: .5; }
@@ -277,7 +283,7 @@ table.t .grp td { padding-top: 14px; font: 600 11px var(--sans); color: var(--in
 .atlas-stage.focus .apin:not(.hot), .atlas-stage.focus .atag:not(.hot) { opacity: .3; }
 .atlas-stage.focus .atlas-lines g:not(.hot) polyline { opacity: .12; }
 .atlas-stage.focus .atlas-lines g.hot .ink { opacity: 1; }
-.atlas-stage.bare .atag, .atlas-stage.bare .atlas-lines { display: none; }
+.atlas-stage.bare .atag, .atlas-stage.bare .atlas-lines g.lead { display: none; }
 /* the lines of work the figure has no place for, each with its agents in the same dark pills */
 .atlas-off { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 0; margin-top: 14px; font-size: 12.5px; }
 .atlas-off .kicker { margin-right: 14px; }

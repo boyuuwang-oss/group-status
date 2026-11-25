@@ -608,8 +608,10 @@
   // image, in map.json: a workstream's atlas.at (points; the first carries the tag; mini = small rings), atlas.tag with
   // side (r/l), v (t = top-aligned) and row (names side by side), atlas.via / from / end (the leader's path; line = false
   // leaves it out), atlas.label (text for spots the figure names differently); project.atlas_agents places agents that
-  // report no workstream.
-  const hasPins = (w) => !!(w.atlas && (w.atlas.at || []).length);
+  // report no workstream. An RG flow has atlas.paths instead of rings: points along the figure's own arrows, from the UV
+  // fixed point to the IR one. Nothing is drawn over the arrow; the path only catches the pointer, and a tag's leader
+  // ends on the arrow with a small dot.
+  const hasPins = (w) => !!(w.atlas && ((w.atlas.at || []).length || (w.atlas.paths || []).length));
   const RING_R = 12, MINI_R = 8.5;                     // ring radii in CSS pixels (style.css .apin, .apin.mini)
   function atlasSpots() {
     const d = S.data;
@@ -634,14 +636,30 @@
     const spots = atlasSpots();
     const pct = (v) => `${(100 * v).toFixed(2)}%`;
     const tagged = spots.filter((s) => s.tag && s.agents.length);
+    const mid = (s) => { const p = s.paths[0]; return p[Math.floor((p.length - 1) / 2)]; };
     // leaders are laid out in pixels by layoutLeaders(), which stops them at the edge of the ring
-    const lines = tagged.filter((s) => s.line !== false).map((s) => `<g data-spot="${esc(s.key)}" data-pts="${esc(JSON.stringify([s.from || s.at[0], ...(s.via || []), s.end || s.tag]))}" data-r="${s.from ? 0 : s.mini ? MINI_R : RING_R}"><polyline class="case"/><polyline class="ink"/></g>`).join('');
-    const pins = spots.map((s) => {
+    const lines = tagged.filter((s) => s.line !== false).map((s) => {
+      const start = s.from || (s.at && s.at[0]) || mid(s);
+      const r = s.from || !s.at ? 0 : s.mini ? MINI_R : RING_R;
+      const dot = s.at ? '' : '<circle class="foot" r="3"/>';      // a flow: the leader's foot sits on the arrow
+      return `<g class="lead" data-spot="${esc(s.key)}" data-pts="${esc(JSON.stringify([start, ...(s.via || []), s.end || s.tag]))}" data-r="${r}"><polyline class="case"/><polyline class="ink"/>${dot}</g>`;
+    }).join('');
+    const about = (s) => {
       const a = act(s.ws ? s.ws.last && s.ws.last.t : s.agents[0].updated);
       const name = s.ws ? s.ws.title : `${s.agents[0].id}${s.label ? ' · ' + s.label : ''}`;
       const when = s.ws ? ACT_LABEL[a] : `${STATE_LABEL[s.agents[0].state] || s.agents[0].state}, report ${ago(s.agents[0].updated)}`;
       const attr = s.ws ? `data-ws="${esc(s.ws.id)}"` : `data-agent="${esc(s.agents[0].id)}"`;
+      return { a, name, when, attr };
+    };
+    const pins = spots.filter((s) => s.at).map((s) => {
+      const { a, name, when, attr } = about(s);
       return s.at.map((p, i) => `<button class="apin p-${a}${i ? ' extra' : s.mini ? ' mini' : ''}" ${attr} data-spot="${esc(s.key)}" data-name="${esc(name)}" data-when="${esc(when)}" style="left:${pct(p[0])};top:${pct(p[1])}" aria-label="${esc(name)}: ${esc(when)}"></button>`).join('');
+    }).join('');
+    // RG flows: an invisible hit area along each arrow of the figure; pointing at it names the flow, clicking opens it
+    const flows = spots.filter((s) => (s.paths || []).length).map((s) => {
+      const { a, name, when, attr } = about(s);
+      const [tx, ty] = mid(s);
+      return `<g class="aflow p-${a}" ${attr} data-spot="${esc(s.key)}" data-name="${esc(name)}" data-when="${esc(when)}" data-tx="${pct(tx)}" data-ty="${pct(ty)}" data-paths="${esc(JSON.stringify(s.paths))}">${s.paths.map(() => '<path class="band"/>').join('')}<title>${esc(name)}</title></g>`;
     }).join('');
     // a tag shows at most four names and opens to all of them on hover or focus
     const tags = tagged.map((s) => {
@@ -664,18 +682,19 @@
     const legend = [['working', 'working'], ['waiting', 'waiting, or no report for a day'], ['blocked', 'blocked'], ['idle', 'idle'], ['done', 'done']]
       .map(([k, l]) => `<span><i class="ldot l-${k}"></i>${l}</span>`).join('');
     const rings = [['today', 'changed today'], ['week', 'this week'], ['quiet', 'quiet'], ['now', 'changed in the last 6 h']]
-      .map(([k, l]) => `<span><i class="ring p-${k}"></i>${l}</span>`).join('') + '<span><i class="ring extra"></i>the same line of work, elsewhere</span>';
+      .map(([k, l]) => `<span><i class="ring p-${k}"></i>${l}</span>`).join('') + '<span><i class="ring extra"></i>the same line of work, elsewhere</span>'
+      + '<span><i class="flowsw"></i>an RG flow: the figure\'s own arrow</span>';
     const stale = d.atlas_sha && d.project.atlas_pins_sha && d.atlas_sha !== d.project.atlas_pins_sha;
     const ratio = d.atlas_size ? ` style="aspect-ratio:${d.atlas_size[0]} / ${d.atlas_size[1]}"` : '';
     return `<section class="panel atlas-live" aria-label="Who works where on the atlas">
       <div class="panel-h"><h2>Who works where</h2><button class="btn-ghost" id="atlas-toggle" type="button" aria-pressed="${S.atlasBare ? 'true' : 'false'}">${S.atlasBare ? 'Show agents' : 'Hide agents'}</button></div>
-      <p class="panel-sub">The atlas from the paper. A ring marks each line of work, stronger the more recently it changed; the dark tags name the agents working there. Point at a ring for its name; click a ring or a name for the details.</p>
-      <div class="atlas-legend"><div><span class="kicker">Agents</span>${legend}</div><div><span class="kicker">Rings</span>${rings}</div></div>
+      <p class="panel-sub">The atlas from the paper. A ring marks each line of work at a fixed point, stronger the more recently it changed; an RG flow is the figure's own arrow between two fixed points. The dark tags name the agents working there. Point at a ring or an arrow for its name; click it or a name for the details.</p>
+      <div class="atlas-legend"><div><span class="kicker">Agents</span>${legend}</div><div><span class="kicker">On the figure</span>${rings}</div></div>
       ${stale ? `<div class="warn">The figure in the paper has changed since these pins were placed, so some may be off. Their positions are <code>atlas</code> in <code>map.json</code>.</div>` : ''}
       <p class="atlas-hint">Scroll sideways for the whole atlas.</p>
       <div class="atlas-wrap"><div class="atlas-scroll" id="atlas-scroll"><div class="atlas-stage${S.atlasBare ? ' bare' : ''}" id="atlas-stage"${ratio}>
         <img src="${esc(S.atlasUrl)}" alt="${esc(d.project.atlas_caption || 'The atlas figure of the paper')}">
-        <svg class="atlas-lines" id="atlas-lines" aria-hidden="true">${lines}</svg>
+        <svg class="atlas-lines" id="atlas-lines" aria-hidden="true">${flows}${lines}</svg>
         ${pins}${tags}<div class="atip" id="atip" hidden></div>
       </div></div></div>
       ${off.length || loose.length ? `<div class="atlas-off"><span class="kicker">Not on the atlas</span>${off.map(offItem).join('')}${loose.length ? `<span class="off-g"><span class="off-ws plain">No workstream</span>${byBusy(loose).map((a) => pill(a)).join('')}</span>` : ''}</div>` : ''}
@@ -699,6 +718,21 @@
       }
       const attr = pts.map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
       g.querySelectorAll('polyline').forEach((l) => l.setAttribute('points', attr));
+      const foot = g.querySelector('circle.foot');
+      if (foot) { foot.setAttribute('cx', pts[0][0].toFixed(1)); foot.setAttribute('cy', pts[0][1].toFixed(1)); }
+    });
+    $$('g.aflow', svg).forEach((g) => {
+      const bands = g.querySelectorAll('path.band');
+      JSON.parse(g.dataset.paths).forEach((path, k) => {
+        const P = path.map(([x, y]) => [x * W, y * H]);
+        let d = `M${P[0][0].toFixed(1)},${P[0][1].toFixed(1)}`;
+        for (let i = 0; i < P.length - 1; i++) {
+          const p0 = P[i - 1] || P[i], p1 = P[i], p2 = P[i + 1], p3 = P[i + 2] || p2;
+          const c1 = [p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6], c2 = [p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6];
+          d += ` C${c1[0].toFixed(1)},${c1[1].toFixed(1)} ${c2[0].toFixed(1)},${c2[1].toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
+        }
+        if (bands[k]) bands[k].setAttribute('d', d);
+      });
     });
   }
   const atlasRO = window.ResizeObserver ? new ResizeObserver(() => layoutLeaders()) : null;
@@ -723,14 +757,14 @@
     if (!tip) return;
     if (ring) {
       tip.innerHTML = `<b>${esc(ring.dataset.name)}</b><span>${esc(ring.dataset.when)}</span>`;
-      tip.style.left = ring.style.left; tip.style.top = ring.style.top;
-      tip.classList.toggle('below', parseFloat(ring.style.top) < 12);
+      tip.style.left = ring.dataset.tx || ring.style.left; tip.style.top = ring.dataset.ty || ring.style.top;
+      tip.classList.toggle('below', parseFloat(tip.style.top) < 12);
       tip.hidden = false;
     } else tip.hidden = true;
   }
   document.addEventListener('pointerover', (ev) => {
     const t = ev.target.closest && ev.target.closest('#atlas-stage [data-spot]');
-    if (t) atlasHot(t.dataset.spot, t.classList.contains('apin') ? t : null);
+    if (t) atlasHot(t.dataset.spot, t.classList.contains('apin') || t.classList.contains('aflow') ? t : null);
   });
   document.addEventListener('pointerout', (ev) => {     // entering another spot is handled by its pointerover
     const t = ev.target.closest && ev.target.closest('#atlas-stage [data-spot]');
@@ -840,7 +874,7 @@
   function focusSpot() {
     const id = selWs();
     if (S.keepScroll) { S.keepScroll = false; return; }   // opened from the atlas: stay there
-    const ring = id && document.querySelector(`#atlas-stage .apin[data-spot="${CSS.escape(id)}"]`);
+    const ring = id && document.querySelector(`#atlas-stage .apin[data-spot="${CSS.escape(id)}"], #atlas-stage .aflow[data-spot="${CSS.escape(id)}"]`);
     if (!ring) return;
     const r = ring.getBoundingClientRect();
     if (r.top < 90 || r.bottom > innerHeight - 20) window.scrollTo({ top: scrollY + r.top - innerHeight / 2, behavior: 'auto' });
