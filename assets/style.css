@@ -229,7 +229,8 @@ table.t .grp td { padding-top: 14px; font: 600 11px var(--sans); color: var(--in
 @media (max-width: 1040px) { .atlas-wrap:not(.at-end)::after { opacity: 1; } }
 .atlas-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
 .atlas-stage { position: relative; min-width: 960px; container-type: inline-size; }
-.atlas-stage > img { display: block; width: 100%; height: 100%; }
+.atlas-stage > img, .atlas-stage > svg.atlas-svg { display: block; width: 100%; height: 100%; }
+.atlas-svg text { font-kerning: normal; }
 .atlas-lines { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .atlas-lines polyline { fill: none; stroke-linecap: round; stroke-linejoin: round; transition: opacity .15s; }
 .atlas-lines .case { stroke: #fff; stroke-width: 4; opacity: .85; }

@@ -611,18 +611,33 @@
   // report no workstream. An RG flow has atlas.paths instead of rings: points along the figure's own arrows, from the UV
   // fixed point to the IR one. Nothing is drawn over the arrow; the path only catches the pointer, and a tag's leader
   // ends on the arrow with a small dot.
-  const hasPins = (w) => !!(w.atlas && ((w.atlas.at || []).length || (w.atlas.paths || []).length));
+  const hasPins = (w) => !!(w.atlas && ((w.atlas.nodes || []).length || (w.atlas.flows || []).length));
   const RING_R = 12, MINI_R = 8.5;                     // ring radii in CSS pixels (style.css .apin, .apin.mini)
+  // node and flow keys of atlas.json become fractions of the figure for the overlays
+  function atlasGeom() {
+    const spec = S.data.atlas_spec;
+    if (!spec || !window.Atlas) return null;
+    const key = S.data.generated;
+    if (!S.atlasG || S.atlasG.key !== key) S.atlasG = { key, g: window.Atlas.geom(spec) };
+    return S.atlasG.g;
+  }
   function atlasSpots() {
-    const d = S.data;
+    const d = S.data, G = atlasGeom();
+    if (!G) return [];
+    const frac = (p) => [p[0] / G.W, p[1] / G.H];
+    const place = (o) => {
+      const at = (o.nodes || []).map((k) => G.pos(k)).filter(Boolean).map(frac);
+      const paths = (o.flows || []).map(([a, b]) => G.path(a, b)).filter((p) => p && p.length).map((p) => p.map(frac));
+      return { ...o, at: at.length ? at : null, paths: paths.length ? paths : null };
+    };
     const spots = d.workstreams.filter(hasPins).map((w) => ({
-      key: w.id, ws: w, ...w.atlas, agents: (w.agents || []).map(agentById).filter(Boolean),
+      key: w.id, ws: w, ...place(w.atlas), agents: (w.agents || []).map(agentById).filter(Boolean),
     }));
     Object.entries(d.project.atlas_agents || {}).forEach(([id, p]) => {
       const a = agentById(id);
-      if (a && (p.at || []).length) spots.push({ key: 'a:' + id, ws: null, ...p, agents: [a] });
+      if (a && (p.nodes || []).length) spots.push({ key: 'a:' + id, ws: null, ...place(p), agents: [a] });
     });
-    return spots;
+    return spots.filter((s) => s.at || s.paths);
   }
 
   // busiest first: working, then waiting or blocked, idle, done; the most recent report first within each
@@ -632,7 +647,7 @@
 
   function atlasPanel() {
     const d = S.data;
-    if (!S.atlasUrl) return '';
+    if (!d.atlas_spec || !window.Atlas) return '';
     const spots = atlasSpots();
     const pct = (v) => `${(100 * v).toFixed(2)}%`;
     const tagged = spots.filter((s) => s.tag && s.agents.length);
@@ -684,16 +699,16 @@
     const rings = [['today', 'changed today'], ['week', 'this week'], ['quiet', 'quiet'], ['now', 'changed in the last 6 h']]
       .map(([k, l]) => `<span><i class="ring p-${k}"></i>${l}</span>`).join('') + '<span><i class="ring extra"></i>the same line of work, elsewhere</span>'
       + '<span><i class="flowsw"></i>an RG flow: the figure\'s own arrow</span>';
-    const stale = d.atlas_sha && d.project.atlas_pins_sha && d.atlas_sha !== d.project.atlas_pins_sha;
-    const ratio = d.atlas_size ? ` style="aspect-ratio:${d.atlas_size[0]} / ${d.atlas_size[1]}"` : '';
+    const fig = d.atlas_spec.figure;
+    const ratio = ` style="aspect-ratio:${fig.w_in} / ${fig.h_in}"`;
+    if (!S.atlasSvg || S.atlasSvg.key !== d.generated) S.atlasSvg = { key: d.generated, html: window.Atlas.svg(d.atlas_spec) };
     return `<section class="panel atlas-live" aria-label="Who works where on the atlas">
       <div class="panel-h"><h2>Who works where</h2><button class="btn-ghost" id="atlas-toggle" type="button" aria-pressed="${S.atlasBare ? 'true' : 'false'}">${S.atlasBare ? 'Show agents' : 'Hide agents'}</button></div>
-      <p class="panel-sub">The atlas from the paper. A ring marks each line of work at a fixed point, stronger the more recently it changed; an RG flow is the figure's own arrow between two fixed points. The dark tags name the agents working there. Point at a ring or an arrow for its name; click it or a name for the details.</p>
+      <p class="panel-sub">The atlas of the paper, drawn from its data (<code>atlas.json</code>), so new 3d CFTs can join it. A ring marks each line of work at a fixed point, stronger the more recently it changed; an RG flow is the figure's own arrow between two fixed points. The dark tags name the agents working there. Point at a ring or an arrow for its name; click it or a name for the details.</p>
       <div class="atlas-legend"><div><span class="kicker">Agents</span>${legend}</div><div><span class="kicker">On the figure</span>${rings}</div></div>
-      ${stale ? `<div class="warn">The figure in the paper has changed since these pins were placed, so some may be off. Their positions are <code>atlas</code> in <code>map.json</code>.</div>` : ''}
       <p class="atlas-hint">Scroll sideways for the whole atlas.</p>
       <div class="atlas-wrap"><div class="atlas-scroll" id="atlas-scroll"><div class="atlas-stage${S.atlasBare ? ' bare' : ''}" id="atlas-stage"${ratio}>
-        <img src="${esc(S.atlasUrl)}" alt="${esc(d.project.atlas_caption || 'The atlas figure of the paper')}">
+        ${S.atlasSvg.html}
         <svg class="atlas-lines" id="atlas-lines" aria-hidden="true">${flows}${lines}</svg>
         ${pins}${tags}<div class="atip" id="atip" hidden></div>
       </div></div></div>
@@ -740,6 +755,7 @@
     const st = $('#atlas-stage');
     if (!st) return;
     if (atlasRO) { atlasRO.disconnect(); atlasRO.observe(st); }
+    window.Atlas.finish($('svg.atlas-svg', st), S.data.atlas_spec);
     layoutLeaders();
     const sc = $('#atlas-scroll');
     const edge = () => sc.parentElement.classList.toggle('at-end', sc.scrollLeft + sc.clientWidth >= sc.scrollWidth - 2);
