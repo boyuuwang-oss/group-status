@@ -7,7 +7,7 @@
   // run after the browser has laid the page out; the timer covers background tabs, where frames are paused
   const afterLayout = (fn) => { let done = false; const run = () => { if (!done) { done = true; fn(); } }; requestAnimationFrame(run); setTimeout(run, 120); };
   const H = 3600e3, D = 24 * H;
-  const S = { data: null, view: 'live', sel: null, feedFilter: 'all', feedWs: null, mode: null, keyinfo: null, key: null, atlas: null, atlasUrl: null, atlasBare: false, lattice: null, loadedAt: 0 };
+  const S = { data: null, view: 'live', sel: null, feedFilter: 'all', feedWs: null, mode: null, keyinfo: null, key: null, atlas: null, atlasUrl: null, atlasBare: false, lattice: null, cover: false, loadedAt: 0 };
   const $ = (q, el = document) => el.querySelector(q);
   const $$ = (q, el = document) => [...el.querySelectorAll(q)];
 
@@ -223,34 +223,46 @@
       S.atlasUrl = await atlasUrl(d);
       if (changed || first) render();
     } catch (err) {
+      document.body.classList.remove('booting');
       if (first) $('#view').innerHTML = `<div class="warn">Could not read the data (${esc(err.message)}). Run <code>python3 website/collect.py --fetch</code>, then serve this folder, for example with <code>website/serve.sh</code>.</div>`;
     }
   }
 
-  // The lock screen is what the public sees at the address: the 3dCFT.com logo (the radial random lattice, re-sampled
-  // live), and the password form. The lattice stops while the page is hidden or idle, and on request.
+  // The home page is the 3dCFT.com logo (the radial random lattice, re-sampled live) with one card under it: the
+  // password form while the data are locked, an "Enter" button once they are open. Unlocking turns the form into that
+  // button, and the button opens Live (or the page that was asked for). The lattice stops while the page is hidden or
+  // idle, and on request.
   const WORDMARK = '<span class="d">3d</span>CFT<span class="com">.com</span>';
-  function showLock(msgText = '') {
-    S.data = null;
-    document.body.classList.add('locked');
-    $('#foot').innerHTML = '';
-    $('#ticker').hidden = true;
-    $$('.nav a').forEach((a) => a.classList.remove('on'));
-    $('#brand-title').textContent = '';
+  const openCard = () => (S.mode === 'enc' ? '<p class="lock-ok"><i aria-hidden="true"></i>Unlocked on this device</p>' : '')
+    + '<button class="lock-btn enter" type="submit" id="enter-btn">Enter <span aria-hidden="true">→</span></button>'
+    + (S.mode === 'enc' ? '<button class="lock-forget" type="button" id="forget">Lock this device</button>' : '');
+  const lockCard = (msgText) => `<label class="lock-label" for="pw">Team password</label>
+        <div class="lock-row"><input type="password" id="pw" autocomplete="current-password" required>
+        <button class="lock-btn" type="submit" id="unlock-btn">Unlock</button></div>
+        <label class="remember"><input type="checkbox" id="remember" checked> Remember on this device</label>
+        <p class="lock-err" id="lock-err" role="alert">${esc(msgText)}</p>
+        <p class="lock-fine">For members of the group. The data are decrypted only in your browser.</p>`;
+  function showCover(open, msgText = '') {
+    document.body.classList.remove('booting');
+    document.body.classList.toggle('locked', !open);
+    document.body.classList.toggle('home', open);
+    $('#drawer').hidden = true; $('#scrim').hidden = true;
     document.title = '3dCFT.com';
+    const card = $('#unlock');
+    if (card && $('#rrl')) {                                 // the logo is up already: change only the card
+      if (card.dataset.state !== (open ? 'open' : 'locked')) {
+        card.dataset.state = open ? 'open' : 'locked';
+        card.innerHTML = open ? openCard() : lockCard(msgText);
+        (open ? $('#enter-btn') : $('#pw')).focus();
+      } else if (!open) $('#lock-err').textContent = msgText;
+      return;
+    }
     $('#view').innerHTML = `<section class="lock">
       <div class="lockup">
         <div class="lock-mark" id="lock-mark" tabindex="0" role="img" aria-label="3dCFT.com logo: a radial random lattice, re-sampled continuously, coloured from gold at the centre to cyan at the rim"><canvas id="rrl" aria-hidden="true"></canvas></div>
-        <div class="lock-word"><h1 class="wordmark">${WORDMARK}</h1><p class="motto">Solving conformal field theory in three dimensions</p></div>
+        <div class="lock-word"><h1 class="wordmark">${WORDMARK}</h1><p class="motto">Solving conformal field theory in three dimensions</p>
+          <form class="lock-card" id="unlock" data-state="${open ? 'open' : 'locked'}">${open ? openCard() : lockCard(msgText)}</form></div>
       </div>
-      <form class="lock-card" id="unlock">
-        <p>This page is for the members of the group. Its data is encrypted; enter the team password to read it.</p>
-        <label class="sr" for="pw">Team password</label>
-        <input type="password" id="pw" autocomplete="current-password" placeholder="Team password" required>
-        <label class="remember"><input type="checkbox" id="remember" checked> Remember on this device</label>
-        <button class="lock-btn" type="submit" id="unlock-btn">Unlock</button>
-        <p class="lock-err" id="lock-err" role="alert">${esc(msgText)}</p>
-      </form>
       <button class="lock-ctl" id="lock-anim" type="button" aria-pressed="false">Pause animation</button>
     </section>`;
     if (S.lattice) S.lattice.stop();
@@ -258,7 +270,19 @@
     $('#lock-mark').addEventListener('click', () => S.lattice && S.lattice.toggle());
     $('#lock-mark').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); S.lattice && S.lattice.toggle(); } });
     $('#lock-anim').addEventListener('click', () => S.lattice && S.lattice.toggle());
-    $('#pw').focus();
+    (open ? $('#enter-btn') : $('#pw')).focus({ preventScroll: true });
+  }
+  function showLock(msgText = '') {
+    S.data = null; S.cover = false;
+    $('#foot').innerHTML = '';
+    $('#ticker').hidden = true;
+    $$('.nav a').forEach((a) => a.classList.remove('on'));
+    showCover(false, msgText);
+  }
+  // Enter: Live from the home page, or the page that was asked for when the password was
+  function enter() {
+    S.cover = false;
+    if (S.view === 'home') go('live'); else { render(); window.scrollTo(0, 0); }
   }
 
   // ------------------------------------------------------------------ the 3dCFT.com lattice (from the logo file)
@@ -488,7 +512,8 @@
       store(() => where.setItem(keyName(), b64e(raw)));
       S.data = d;
       S.atlasUrl = await atlasUrl(d);
-      render();
+      S.cover = true;                                   // stay on the logo until Enter
+      showCover(true);
     } catch (e) {
       err.textContent = e.message === 'wrong password' ? 'That password does not open the data.' : `Could not unlock: ${e.message}`;
       btn.disabled = false; btn.textContent = 'Unlock';
@@ -497,8 +522,8 @@
 
   // ------------------------------------------------------------------ router
   function route() {
-    const [, view = 'live', sel = null] = (location.hash || '#/live').split('/');
-    S.view = ['live', 'agents', 'map', 'paper', 'activity'].includes(view) ? view : 'live';
+    const [, view = 'home', sel = null] = (location.hash || '#/home').split('/');
+    S.view = ['home', 'live', 'agents', 'map', 'paper', 'activity'].includes(view) ? view : view ? 'live' : 'home';
     S.sel = sel ? decodeURIComponent(sel) : null;
   }
   function go(view, sel = null) { location.hash = `#/${view}${sel ? '/' + encodeURIComponent(sel) : ''}`; }
@@ -506,8 +531,10 @@
   // ------------------------------------------------------------------ shell
   function render() {
     if (!S.data) return;
-    if (S.lattice) { S.lattice.stop(); S.lattice = null; }
     route();
+    if (S.view === 'home' || S.cover) { showCover(true); return; }
+    document.body.classList.remove('booting', 'home');
+    if (S.lattice) { S.lattice.stop(); S.lattice = null; }
     const d = S.data;
     document.body.classList.remove('locked');
     $$('.nav a').forEach((a) => a.classList.toggle('on', a.dataset.view === S.view));
@@ -516,15 +543,15 @@
     $('#lock').hidden = S.mode !== 'enc';
     $('#brand-title').textContent = d.project.title || '';
     $('#tagline').textContent = d.project.tagline || '';
-    document.title = `3dCFT.com · ${S.view[0].toUpperCase()}${S.view.slice(1)}`;
+    document.title = `${S.view[0].toUpperCase()}${S.view.slice(1)} · ${d.project.title} · 3dCFT.com`;
     renderTicker();
     const v = $('#view');
     const keep = window.scrollY;
     v.innerHTML = ({ live: viewLive, agents: viewAgents, map: viewMap, paper: viewPaper, activity: viewActivity })[S.view]();
-    if (S.view === 'live') afterLayout(() => { drawWires(); atlasMounted(); });
+    if (S.view === 'live') afterLayout(atlasMounted);
     if (S.view === 'map') afterLayout(() => { fitMap(); focusNode(); });
-    if (S.view === 'live') afterLayout(focusSeat);
     window.scrollTo(0, keep);
+    if (S.view === 'live') afterLayout(focusSpot);
     renderDrawer();
     $('#foot').innerHTML = `Snapshot ${esc(when(d.generated))} · paper ${esc(d.paper.head || '—')} · ${esc(d.project.repo)} · refreshed by <code>website/collect.py</code>`;
   }
@@ -566,10 +593,6 @@
       <div class="stats">${stats.map(([n, l]) => `<div class="stat"><b>${esc(n)}</b><span>${esc(l)}</span></div>`).join('')}</div>
     </section>
     ${atlasPanel()}
-    <section class="board" id="board" aria-label="Workstreams around the paper">
-      <svg class="wires" id="wires" aria-hidden="true"></svg>
-      <div class="grid9">${d.clusters.map(clusterCell).join('')}${hubCell()}</div>
-    </section>
     <section class="two">
       <div class="panel">
         <div class="panel-h"><h2>Inside the project</h2><span class="live-pill">LIVE</span></div>
@@ -715,76 +738,6 @@
     if (t && !to) atlasHot(null);
   });
 
-  function clusterCell(c) {
-    const items = S.data.workstreams.filter((w) => w.cluster === c.id);
-    if (!items.length) return `<div class="cl s-${c.slot}" style="grid-area:${c.slot};--hue:${hue(c.id)}"></div>`;
-    return `<div class="cl s-${c.slot}" style="grid-area:${c.slot};--hue:${hue(c.id)}">
-      <div class="cl-h"><b>${esc(c.title)}</b><span>${esc(c.sub)}</span></div>
-      ${items.map(seat).join('')}
-    </div>`;
-  }
-
-  function seat(w) {
-    const a = act(w.last && w.last.t);
-    const lw = w.last_work, lp = w.last_paper;
-    const work = w.planned ? '<span class="what">planned · no work yet</span>'
-      : lw ? `<span class="when">${short(lw.t)}</span><span class="what">${esc(lw.who)}: ${esc(what(lw, false, w.id))}</span>`
-        : '<span class="what">no commits yet</span>';
-    // a paper edit newer than the latest work gets its own line
-    const paper = lp && (!lw || lp.t > lw.t) ? `<div class="seat-line paper"><span class="when">${short(lp.t)}</span><span class="what">paper · ${esc(lp.who)}: ${esc(what(lp, false, w.id))}</span></div>` : '';
-    return `<button class="seat${a === 'quiet' ? ' quiet' : ''}${w.planned ? ' planned' : ''}" data-ws="${esc(w.id)}" data-act="${a}" title="${esc(w.title)} — ${esc(ACT_LABEL[a])}">
-      <div class="seat-top"><span class="dot a-${a}"></span><span class="seat-name">${esc(w.title)}</span>${stChip(w, true)}</div>
-      <div class="seat-line">${work}</div>${paper}${agentLine(w)}
-    </button>`;
-  }
-
-  function agentLine(w) {
-    const a = (w.agents || []).map(agentById).filter(Boolean)[0];
-    if (!a) return '';
-    return `<div class="seat-line seat-agent"><span class="dot a-${agentDot(a)}"></span><span class="what">${esc(a.id)} · ${esc(a.state)}: ${esc(a.task)}</span></div>`;
-  }
-
-  function hubCell() {
-    const p = S.data.paper;
-    const units = p.units || [];
-    const written = units.filter((u) => u.status === 'written' || u.status === 'draft').length;
-    const last = S.data.events.find((e) => e.kind === 'paper');
-    return `<div class="hub">
-      <button class="hub-disc a-${act(p.updated)}" id="hub" aria-label="Open the paper progress"><span><b>PAPER</b><small>${esc(p.title || '')}</small></span></button>
-      <div class="hub-cap">${last ? `edited ${ago(last.t)} by ${esc(last.who)}<br>` : ''}${written}/${units.length} parts written · ${plural(p.macros ? p.macros.length : 0, 'tracked number')}</div>
-    </div>`;
-  }
-
-  function drawWires() {
-    const board = $('#board'), svg = $('#wires'), hub = $('#hub');
-    if (!board || !svg || !hub || getComputedStyle(svg).display === 'none') return;
-    const b = board.getBoundingClientRect();
-    const hr = hub.getBoundingClientRect();
-    const hx = hr.left + hr.width / 2 - b.left, hy = hr.top + hr.height / 2 - b.top, R = hr.width / 2 + 4;
-    svg.setAttribute('viewBox', `0 0 ${b.width} ${b.height}`);
-    const paths = $$('.seat', board).map((el) => {
-      const w = wsById(el.dataset.ws);
-      const r = el.getBoundingClientRect();
-      const cx = r.left + r.width / 2 - b.left, cy = r.top + r.height / 2 - b.top;
-      let ax, ay;
-      if (Math.abs(cx - hx) < r.width / 2) { ax = cx; ay = cy < hy ? r.bottom - b.top : r.top - b.top; }
-      else { ax = cx < hx ? r.right - b.left : r.left - b.left; ay = cy; }
-      const ang = Math.atan2(ay - hy, ax - hx);
-      const ex = hx + R * Math.cos(ang), ey = hy + R * Math.sin(ang);
-      const horiz = Math.abs(cx - hx) >= r.width / 2;
-      const c1x = horiz ? ax + (ex - ax) * 0.45 : ax, c1y = horiz ? ay : ay + (ey - ay) * 0.45;
-      const c2x = ex + (ax - ex) * 0.35, c2y = ey + (ay - ey) * 0.35;
-      const a = el.dataset.act;
-      const op = { now: 0.95, today: 0.7, week: 0.4, quiet: 0.2, none: 0.12 }[a];
-      const col = hue(w ? w.cluster : 'beyond');
-      const inPaper = w && ['written', 'draft'].includes(st(w));
-      const dash = a === 'now' ? '' : inPaper ? '' : ' stroke-dasharray="2 4"';
-      return `<path class="${a === 'now' ? 'w-now' : ''}" d="M${ax.toFixed(1)},${ay.toFixed(1)} C${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${ex.toFixed(1)},${ey.toFixed(1)}" style="stroke:${col};opacity:${op}"${dash}/>
-        <circle class="tick" cx="${ax.toFixed(1)}" cy="${ay.toFixed(1)}" r="2" style="fill:${col};opacity:${op}"/>`;
-    });
-    svg.innerHTML = paths.join('');
-  }
-
   function msg(e) {
     const to = (e.ws || []).map((id) => wsById(id)).filter(Boolean);
     const target = e.kind === 'paper' ? 'paper' : to.length ? to.map((w) => w.title).slice(0, 2).join(', ') : e.kind === 'agent' ? 'agents board' : (e.branches || []).join(', ');
@@ -883,15 +836,14 @@
     flash(node);
   }
 
-  function focusSeat() {
+  // Live with a workstream (or agent) selected: mark its rings and tags, and bring the first ring into view
+  function focusSpot() {
     const id = selWs();
-    $$('.seat').forEach((n) => n.classList.toggle('sel', n.dataset.ws === id));
-    const seat = id && document.querySelector(`.seat[data-ws="${CSS.escape(id)}"]`);
     if (S.keepScroll) { S.keepScroll = false; return; }   // opened from the atlas: stay there
-    if (!seat) return;
-    const r = seat.getBoundingClientRect();
-    if (r.top < 70 || r.bottom > innerHeight) window.scrollTo({ top: scrollY + r.top - Math.max(80, (innerHeight - r.height) / 2), behavior: 'auto' });
-    flash(seat);
+    const ring = id && document.querySelector(`#atlas-stage .apin[data-spot="${CSS.escape(id)}"]`);
+    if (!ring) return;
+    const r = ring.getBoundingClientRect();
+    if (r.top < 90 || r.bottom > innerHeight - 20) window.scrollTo({ top: scrollY + r.top - innerHeight / 2, behavior: 'auto' });
   }
 
   function fitMap() {
@@ -1012,7 +964,7 @@ python3 /tmp/agent_status.py inbox YOUR-AGENT  # requests to you`;
   function navLinks(w, fromAgent) {
     const links = [];
     if (fromAgent) links.push(`<button class="nav-link" data-ws="${esc(w.id)}">◧ ${esc(w.title)}</button>`);
-    if (S.view !== 'live' || fromAgent) links.push(`<a class="nav-link" href="#/live/${esc(encodeURIComponent(w.id))}">● Live card</a>`);
+    if (hasPins(w) && (S.view !== 'live' || fromAgent)) links.push(`<a class="nav-link" href="#/live/${esc(encodeURIComponent(w.id))}">◎ On the atlas</a>`);
     if (S.view !== 'map' || fromAgent) links.push(`<a class="nav-link" href="#/map/${esc(encodeURIComponent(w.id))}">⌗ Show on map</a>`);
     if (!fromAgent) (w.agents || []).forEach((id) => links.push(`<button class="nav-link" data-agent="${esc(id)}">◉ Agent card: ${esc(id)}</button>`));
     if (!fromAgent && (w.paper.units || []).length) links.push(`<a class="nav-link" href="#/paper">¶ In the paper</a>`);
@@ -1095,7 +1047,7 @@ python3 /tmp/agent_status.py inbox YOUR-AGENT  # requests to you`;
     if (was !== open) relayout();
   }
   function relayout() {
-    if (S.view === 'live') afterLayout(() => { drawWires(); layoutLeaders(); });
+    if (S.view === 'live') afterLayout(layoutLeaders);
     if (S.view === 'map') afterLayout(() => { fitMap(); focusNode(); });
   }
 
@@ -1145,13 +1097,12 @@ python3 /tmp/agent_status.py inbox YOUR-AGENT  # requests to you`;
     dr.hidden = false; scrim.hidden = false; panelLayout(true);
     if (reopened) dr.scrollTop = 0;
     $$('.node').forEach((n) => n.classList.toggle('sel', n.dataset.ws === w.id));
-    $$('.seat').forEach((n) => n.classList.toggle('sel', n.dataset.ws === w.id));
   }
 
   // ------------------------------------------------------------------ events
   document.addEventListener('click', (ev) => {
     if (ev.target.closest('a[target="_blank"]')) return;
-    const t = ev.target.closest('[data-agent],[data-ws],[data-filter],[data-filter-ws],[data-filter-go],[data-go],#hub,#close,#scrim,#atlas-toggle');
+    const t = ev.target.closest('[data-agent],[data-ws],[data-filter],[data-filter-ws],[data-filter-go],[data-go],#close,#scrim,#atlas-toggle');
     if (!t) return;
     if (t.id === 'atlas-toggle') {
       S.atlasBare = !S.atlasBare;
@@ -1163,7 +1114,7 @@ python3 /tmp/agent_status.py inbox YOUR-AGENT  # requests to you`;
     S.keepScroll = !!t.closest('#atlas-stage');
     if (t.dataset.agent) { ev.preventDefault(); go(S.view, 'a:' + t.dataset.agent); return; }
     if (t.id === 'close' || t.id === 'scrim') { go(S.view); return; }
-    if (t.id === 'hub' || t.dataset.go === 'paper') { go('paper'); return; }
+    if (t.dataset.go === 'paper') { go('paper'); return; }
     if (t.dataset.filterGo !== undefined) {
       ev.preventDefault(); S.feedWs = t.dataset.filterGo; S.feedFilter = 'all';
       location.hash = '#/activity'; render(); window.scrollTo(0, 0); return;
@@ -1172,12 +1123,17 @@ python3 /tmp/agent_status.py inbox YOUR-AGENT  # requests to you`;
     if (t.dataset.filterWs !== undefined) { S.feedWs = null; render(); return; }
     if (t.dataset.ws) { ev.preventDefault(); go(S.view, t.dataset.ws); }
   });
-  document.addEventListener('submit', (ev) => { if (ev.target.id === 'unlock') unlock(ev); });
-  $('#lock').addEventListener('click', () => {
+  document.addEventListener('submit', (ev) => {
+    if (ev.target.id !== 'unlock') return;
+    if (ev.target.dataset.state === 'open') { ev.preventDefault(); enter(); } else unlock(ev);
+  });
+  function lockDevice() {
     forgetKey(); S.atlasUrl = null; $('#lock').hidden = true;
     $('#drawer').hidden = true; $('#scrim').hidden = true; panelLayout(false);
     showLock();
-  });
+  }
+  $('#lock').addEventListener('click', lockDevice);
+  document.addEventListener('click', (ev) => { if (ev.target.closest && ev.target.closest('#forget')) lockDevice(); });
   document.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape' && S.sel && S.data) go(S.view);
     if ((ev.key === 'Enter' || ev.key === ' ') && ev.target.matches && ev.target.matches('article[data-agent]')) { ev.preventDefault(); go(S.view, 'a:' + ev.target.dataset.agent); }
@@ -1189,7 +1145,7 @@ python3 /tmp/agent_status.py inbox YOUR-AGENT  # requests to you`;
     if (before !== S.view) { render(); if (!S.sel) window.scrollTo(0, 0); } else {
       renderDrawer();
       if (S.view === 'map') afterLayout(focusNode);
-      if (S.view === 'live') afterLayout(focusSeat);
+      if (S.view === 'live') afterLayout(focusSpot);
     }
   });
   let rt;
@@ -1230,16 +1186,7 @@ python3 /tmp/agent_status.py inbox YOUR-AGENT  # requests to you`;
     const dark = document.documentElement.dataset.theme ? document.documentElement.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
     document.documentElement.dataset.theme = dark ? 'light' : 'dark';
     try { localStorage.setItem(themeKey, document.documentElement.dataset.theme); } catch (_) { /* ignore */ }
-    if (S.view === 'live') drawWires();
   });
-
-  // the 3dCFT.com sign: a still frame of the logo's lattice in the header, and another as the tab's icon
-  lattice($('#brand-rrl'), null, { animate: false });
-  try {
-    const ic = document.createElement('canvas');
-    lattice(ic, null, { animate: false, px: 64 });
-    $('#favicon').href = ic.toDataURL('image/png');
-  } catch (_) { /* no canvas: keep the browser's default icon */ }
 
   route();
   load(true);
