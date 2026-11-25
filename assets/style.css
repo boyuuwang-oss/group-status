@@ -54,10 +54,24 @@ button { font: inherit; color: inherit; }
 /* ---------- header */
 .top { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: 28px; padding: 12px 32px;
   background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
-.brand { display: flex; align-items: baseline; gap: 12px; color: var(--ink); min-width: 0; }
+/* the 3dCFT.com sign, as given in the logo file: the lattice disc and the wordmark (Space Grotesk; "3d" in #12C2E9,
+   ".com" at .373em in #9AA3C7) on the logo's navy ground #0B1026. The header carries that ground in both themes. */
+.top { background: #0B1026; border-bottom-color: rgba(154, 163, 199, .18); backdrop-filter: none; }
+.brand { display: flex; align-items: center; gap: 12px; color: #fff; min-width: 0; }
 .brand:hover { text-decoration: none; }
-.mark { font: italic 500 22px/1 var(--serif); letter-spacing: -.01em; white-space: nowrap; }
-.tagline { font-size: 12px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.brand-mark { position: relative; display: block; flex: none; width: 38px; height: 38px; border-radius: 50%; }
+.brand-mark canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.wordmark { margin: 0; display: flex; align-items: baseline; line-height: 1; letter-spacing: -0.035em; font-weight: 700;
+  font-family: "Space Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif; white-space: nowrap; color: #fff; }
+.wordmark .d { font-weight: 500; color: #12C2E9; }
+.wordmark .com { font-size: .373em; font-weight: 500; color: #9AA3C7; margin-left: .1em; letter-spacing: -.01em; }
+.brand .wordmark { font-size: 27px; }
+.mark, .tagline { display: none; }
+.top .nav a { color: #B8BFDC; }
+.top .nav a:hover { background: rgba(255, 255, 255, .08); color: #fff; }
+.top .nav a.on { background: #fff; color: #0B1026; }
+.top .btn-ghost, .top .btn-icon { color: #B8BFDC; border-color: rgba(154, 163, 199, .45); }
+.top .btn-ghost:hover, .top .btn-icon:hover { background: rgba(255, 255, 255, .08); color: #fff; }
 .nav { display: flex; gap: 4px; margin-left: auto; }
 .nav a { padding: 6px 12px; border-radius: 999px; color: var(--ink-2); font-weight: 500; }
 .nav a:hover { background: var(--bg-2); text-decoration: none; color: var(--ink); }
@@ -245,6 +259,101 @@ table.t .grp td { padding-top: 14px; font: 600 11px var(--sans); color: var(--in
 .atlas { margin: 0; }
 .atlas img { width: 100%; height: auto; display: block; border-radius: 12px; border: 1px solid var(--line); background: #fff; }
 .atlas figcaption { margin-top: 8px; font-size: 12px; color: var(--ink-2); }
+/* ---------- the atlas on Live: the paper's figure, a ring at each line of work, dark tags naming its agents.
+   The figure is light in both themes, so everything drawn on it uses fixed colours. The rings use one hue the figure
+   does not use (its green, blue, orange and purple carry meaning), and show how recent the work is by strength. */
+.atlas-live { margin-bottom: 22px; }
+.atlas-live .panel-h .btn-ghost { flex: none; }
+.atlas-legend { display: flex; flex-wrap: wrap; gap: 8px 32px; margin: -4px 0 14px; font-size: 12px; color: var(--ink-2); }
+.atlas-legend > div { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
+.atlas-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.ldot { width: 7px; height: 7px; border-radius: 50%; box-sizing: border-box; }
+.ldot.l-working { background: #3fae6e; } .ldot.l-waiting { background: #d99a2b; } .ldot.l-blocked { background: #d9674b; }
+.ldot.l-idle { background: #9a9488; } .ldot.l-done { border: 1.5px solid #3fae6e; }
+.atlas-legend .ring { position: relative; width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--pc); box-sizing: border-box; }
+.atlas-legend .ring.p-now::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 1.2px solid var(--pc); opacity: .55; }
+.atlas-legend .ring.extra { --pc: rgba(184, 50, 94, .75); border-style: dashed; border-width: 1.5px; }
+.apin, .atlas-legend .ring { --pc: rgba(184, 50, 94, .3); }
+.apin.p-week, .atlas-legend .ring.p-week { --pc: rgba(184, 50, 94, .6); }
+.apin.p-today, .apin.p-now, .atlas-legend .ring.p-today, .atlas-legend .ring.p-now { --pc: #b8325e; }
+.atlas-hint { display: none; margin: 0 0 8px; font-size: 12px; color: var(--ink-3); }
+@media (max-width: 1040px) { .atlas-hint { display: block; } }
+.atlas-wrap { position: relative; }
+.atlas-wrap::after { content: ""; position: absolute; top: 1px; right: 1px; bottom: 1px; width: 36px; border-radius: 0 11px 11px 0; pointer-events: none;
+  background: linear-gradient(to right, rgba(255, 255, 255, 0), rgba(255, 255, 255, .95)); opacity: 0; transition: opacity .2s; }
+@media (max-width: 1040px) { .atlas-wrap:not(.at-end)::after { opacity: 1; } }
+.atlas-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.atlas-stage { position: relative; min-width: 960px; container-type: inline-size; }
+.atlas-stage > img { display: block; width: 100%; height: 100%; }
+.atlas-lines { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.atlas-lines polyline { fill: none; stroke-linecap: round; stroke-linejoin: round; transition: opacity .15s; }
+.atlas-lines .case { stroke: #fff; stroke-width: 4; opacity: .85; }
+.atlas-lines .ink { stroke: #1c1b19; stroke-width: 1.1; opacity: .7; }
+.apin { position: absolute; width: 24px; height: 24px; margin: -12px 0 0 -12px; padding: 0; border-radius: 50%;
+  border: 2.5px solid var(--pc); background: transparent; cursor: pointer;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, .9), inset 0 0 0 1.5px rgba(255, 255, 255, .9); transition: opacity .15s, transform .15s; }
+.apin.extra, .apin.mini { width: 17px; height: 17px; margin: -8.5px 0 0 -8.5px; border-width: 2px; }
+.apin.extra { border-style: dashed; }
+/* changed in the last 6 h: a second ring, which pulses three times when the page loads or the data change */
+.apin.p-now::before, .apin.p-now::after { content: ""; position: absolute; inset: -6px; border-radius: 50%; border: 1.5px solid var(--pc); pointer-events: none; }
+.apin.p-now::before { opacity: .5; }
+.apin.p-now::after { opacity: 0; animation: ring 2.2s ease-out 3; }
+.apin:hover, .apin.hot, .apin.sel { transform: scale(1.15); }
+.apin:focus-visible, .atag-a:focus-visible, .off-ws:focus-visible { outline: 2px solid #5b55a6; outline-offset: 2px; }
+.atip { position: absolute; z-index: 5; display: flex; flex-direction: column; gap: 1px; padding: 5px 9px 6px; border-radius: 8px;
+  background: rgba(28, 27, 25, .92); color: #f5f3ee; white-space: nowrap; pointer-events: none; transform: translate(-50%, calc(-100% - 18px));
+  font: 500 clamp(10.5px, .9cqw, 12px)/1.3 var(--sans); }
+.atip span { color: #c9c3b6; font-weight: 400; font-size: .92em; }
+.atip.below { transform: translate(-50%, 18px); }
+.atip[hidden] { display: none; }
+.atag { position: absolute; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; transform: translate(0, -50%); transition: opacity .15s; }
+.atag.side-l { align-items: flex-end; transform: translate(-100%, -50%); }
+.atag.v-t { transform: none; }
+.atag.side-l.v-t { transform: translate(-100%, 0); }
+.atag.row { flex-direction: row; flex-wrap: wrap; justify-content: flex-start; align-items: center; width: max-content; }
+.atag.row.side-l { justify-content: flex-end; }
+.atag .atag-a.rest { display: none; }
+.atag:hover .atag-a.rest, .atag:focus-within .atag-a.rest, .atag.hot .atag-a.rest, .atag.sel .atag-a.rest { display: inline-flex; }
+.atag:hover .atag-more, .atag:focus-within .atag-more, .atag.hot .atag-more, .atag.sel .atag-more { display: none; }
+.atag:hover, .atag:focus-within, .atag.sel { z-index: 3; }
+.atag-l { padding: 2px 8px; border-radius: 999px; background: rgba(255, 255, 255, .94); color: #1c1b19; box-shadow: inset 0 0 0 1px rgba(28, 27, 25, .22);
+  font: 500 clamp(9.5px, .82cqw, 11px)/1.25 var(--sans); white-space: nowrap; }
+.atag-a, .atag-more { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px 3px 7px; border: 0; border-radius: 999px;
+  background: rgba(28, 27, 25, .85); color: #f5f3ee; font: 500 clamp(9.5px, .86cqw, 11.5px)/1.15 var(--mono); white-space: nowrap; }
+.atag-a { cursor: pointer; }
+.atag-more { padding: 3px 8px; background: rgba(28, 27, 25, .55); cursor: default; }
+.atag-a:hover, .atag.hot .atag-a, .atag.sel .atag-a { background: #1c1b19; }
+.atag-a .dot { width: 7px; height: 7px; opacity: 1; animation: none; box-shadow: none; box-sizing: border-box; }
+.atag-a .dot.a-now, .atag-a .dot.a-today { background: #4cc47e; }
+.atag-a .dot.a-stale, .atag-a .dot.a-waiting { background: #e0a43c; }
+.atag-a .dot.a-blocked { background: #e0775c; }
+.atag-a .dot.a-idle { background: #9a9488; }
+.atag-a .dot.a-done { background: transparent; border: 1.5px solid #6fcb94; }
+.atlas-stage.focus .apin:not(.hot), .atlas-stage.focus .atag:not(.hot) { opacity: .3; }
+.atlas-stage.focus .atlas-lines g:not(.hot) polyline { opacity: .12; }
+.atlas-stage.focus .atlas-lines g.hot .ink { opacity: 1; }
+.atlas-stage.bare .atag, .atlas-stage.bare .atlas-lines { display: none; }
+/* the lines of work the figure has no place for, each with its agents in the same dark pills */
+.atlas-off { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 0; margin-top: 14px; font-size: 12.5px; }
+.atlas-off .kicker { margin-right: 14px; }
+.off-g { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 5px; padding: 0 14px; border-left: 1px solid var(--line-2); }
+.atlas-off .kicker + .off-g { padding-left: 0; border-left: 0; }
+.off-ws { padding: 0; border: 0; background: none; color: var(--ink); font: inherit; cursor: pointer; margin-right: 3px; }
+.off-ws:hover { text-decoration: underline; }
+.off-ws.plain { color: var(--ink-3); cursor: default; text-decoration: none; }
+.off-g.none .off-ws { color: var(--ink-3); }
+.atlas-off .atag-a .dot { width: 6px; height: 6px; }
+.atlas-off .atag-a { font-size: 11px; }
+@media (prefers-reduced-motion: reduce) { .apin.p-now::after { animation: none; } }
+.still .apin.p-now::after { animation: none; }
+/* dark theme: dim the white figure a little and give it a warm frame */
+:root[data-theme="dark"] .atlas-stage > img { filter: brightness(.92); }
+:root[data-theme="dark"] .atlas-scroll { border-color: #5a5346; background: #e9e4d8; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .atlas-stage > img { filter: brightness(.92); }
+  :root:not([data-theme="light"]) .atlas-scroll { border-color: #5a5346; background: #e9e4d8; }
+}
+
 .note { padding: 10px 0; border-top: 1px solid var(--line); }
 .note:first-of-type { border-top: 0; }
 .note .who { font: 11px var(--mono); color: var(--ink-3); }
@@ -385,19 +494,44 @@ ul.plan li.done span { color: var(--live); }
 @media (prefers-reduced-motion: reduce) { .flash { animation: none; } }
 
 /* ---------- lock screen of the published copy */
-body.locked .nav, body.locked .foot { visibility: hidden; }
-.lock { min-height: 62vh; display: grid; place-items: center; }
-.lock-card { width: min(440px, 100%); display: flex; flex-direction: column; gap: 14px; padding: 34px 32px 28px;
-  border: 1px solid var(--line); border-radius: 20px; background: var(--panel); box-shadow: var(--shadow); }
-.lock-card h1 { margin: 0; font: 400 36px/1.1 var(--serif); letter-spacing: -.01em; }
-.lock-card p { margin: 0; color: var(--ink-2); }
-.lock-card input[type="password"] { font: 15px var(--sans); padding: 11px 13px; border: 1px solid var(--line-2); border-radius: 10px;
-  background: var(--card); color: var(--ink); }
-.lock-card input[type="password"]:focus { outline: 2px solid var(--c5); outline-offset: 1px; }
-.remember { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--ink-2); }
-.lock-card .btn-dark { border: 0; cursor: pointer; padding: 11px 14px; font-size: 14px; }
-.lock-card .btn-dark:disabled { opacity: .6; cursor: progress; }
-.lock-err { min-height: 1.4em; font-size: 13px; color: var(--c4) !important; }
+/* ---------- the lock screen: what the public sees at the address. The logo exactly as in the logo file (its ground,
+   sizes, type and play/pause control), then the password form. */
+body.locked { background: #0B1026; color: #fff; }
+body.locked .top, body.locked .ticker, body.locked .foot { display: none; }
+body.locked main { max-width: none; padding: 0; }
+.lock { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 0 72px;
+  font-family: "Space Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif; overflow-x: clip; }
+.lockup { display: flex; align-items: center; justify-content: center; gap: clamp(24px, 5vw, 64px); padding: clamp(28px, 5vw, 72px) max(5vw, 16px); }
+.lock-mark { position: relative; flex: none; width: clamp(200px, 28vw, 340px); aspect-ratio: 1 / 1; border-radius: 50%; cursor: pointer; }
+.lock-mark canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.lock-mark:focus-visible { outline: 2px solid #12C2E9; outline-offset: 6px; }
+.lock-word { display: flex; flex-direction: column; gap: clamp(8px, 1.2vw, 16px); }
+.lock .wordmark { font-size: clamp(64px, 10.5vw, 150px); }
+.motto { margin: 0; padding-left: .35em; font-size: clamp(16px, 1.6vw, 22px); line-height: 1.35; color: #B8BFDC; letter-spacing: .01em; text-wrap: balance; }
+.lock-card { width: min(400px, calc(100% - 32px)); display: flex; flex-direction: column; gap: 12px; padding: 22px 24px 18px; border-radius: 16px;
+  border: 1px solid rgba(154, 163, 199, .28); background: rgba(255, 255, 255, .035); font-family: var(--sans); }
+.lock-card p { margin: 0; font-size: 13px; line-height: 1.5; color: #B8BFDC; }
+.lock-card input[type="password"] { font: 15px var(--sans); padding: 11px 13px; border: 1px solid rgba(154, 163, 199, .4); border-radius: 10px;
+  background: rgba(11, 16, 38, .6); color: #fff; }
+.lock-card input[type="password"]::placeholder { color: #7d86ab; }
+.lock-card input[type="password"]:focus { outline: 2px solid #12C2E9; outline-offset: 1px; border-color: transparent; }
+.remember { display: flex; gap: 8px; align-items: center; font-size: 13px; color: #B8BFDC; }
+.remember input { accent-color: #12C2E9; }
+.lock-btn { border: 0; border-radius: 10px; padding: 11px 14px; background: #12C2E9; color: #0B1026; font: 600 14px var(--sans); cursor: pointer; }
+.lock-btn:hover { background: #3fd3f3; }
+.lock-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.lock-btn:disabled { opacity: .6; cursor: progress; }
+.lock-err { min-height: 1.4em; font-size: 13px; color: #ff8fa3 !important; }
+.lock-ctl { position: fixed; right: 16px; bottom: 16px; min-width: 44px; height: 44px; padding: 0 16px; border-radius: 22px; border: 1px solid rgba(154, 163, 199, .45);
+  background: rgba(11, 16, 38, .7); color: #B8BFDC; font: 500 14px/1 "Space Grotesk", system-ui, sans-serif; cursor: pointer; }
+.lock-ctl:hover { color: #fff; border-color: #12C2E9; }
+.lock-ctl:focus-visible { outline: 2px solid #12C2E9; outline-offset: 3px; }
+@media (max-width: 700px) {
+  .lockup { flex-direction: column; text-align: center; }
+  .lock-word { align-items: center; }
+  .motto { padding-left: 0; }
+  .lock .wordmark { font-size: clamp(48px, 16vw, 96px); }
+}
 
 /* ---------- narrow screens */
 @media (max-width: 1100px) {

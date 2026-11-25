@@ -7,7 +7,7 @@
   // run after the browser has laid the page out; the timer covers background tabs, where frames are paused
   const afterLayout = (fn) => { let done = false; const run = () => { if (!done) { done = true; fn(); } }; requestAnimationFrame(run); setTimeout(run, 120); };
   const H = 3600e3, D = 24 * H;
-  const S = { data: null, view: 'live', sel: null, feedFilter: 'all', feedWs: null, mode: null, keyinfo: null, key: null, atlas: null, atlasUrl: null, loadedAt: 0 };
+  const S = { data: null, view: 'live', sel: null, feedFilter: 'all', feedWs: null, mode: null, keyinfo: null, key: null, atlas: null, atlasUrl: null, atlasBare: false, lattice: null, loadedAt: 0 };
   const $ = (q, el = document) => el.querySelector(q);
   const $$ = (q, el = document) => [...el.querySelectorAll(q)];
 
@@ -227,22 +227,253 @@
     }
   }
 
+  // The lock screen is what the public sees at the address: the 3dCFT.com logo (the radial random lattice, re-sampled
+  // live), and the password form. The lattice stops while the page is hidden or idle, and on request.
+  const WORDMARK = '<span class="d">3d</span>CFT<span class="com">.com</span>';
   function showLock(msgText = '') {
     S.data = null;
     document.body.classList.add('locked');
     $('#foot').innerHTML = '';
     $('#ticker').hidden = true;
     $$('.nav a').forEach((a) => a.classList.remove('on'));
-    $('#view').innerHTML = `<section class="lock"><form class="lock-card" id="unlock">
-      <h1>Research status</h1>
-      <p>This page is for the members of the group. Its data is encrypted; enter the team password to read it.</p>
-      <label class="sr" for="pw">Team password</label>
-      <input type="password" id="pw" autocomplete="current-password" placeholder="Team password" required>
-      <label class="remember"><input type="checkbox" id="remember" checked> Remember on this device</label>
-      <button class="btn-dark" type="submit" id="unlock-btn">Unlock</button>
-      <p class="lock-err" id="lock-err" role="alert">${esc(msgText)}</p>
-    </form></section>`;
+    $('#brand-title').textContent = '';
+    document.title = '3dCFT.com';
+    $('#view').innerHTML = `<section class="lock">
+      <div class="lockup">
+        <div class="lock-mark" id="lock-mark" tabindex="0" role="img" aria-label="3dCFT.com logo: a radial random lattice, re-sampled continuously, coloured from gold at the centre to cyan at the rim"><canvas id="rrl" aria-hidden="true"></canvas></div>
+        <div class="lock-word"><h1 class="wordmark">${WORDMARK}</h1><p class="motto">Solving conformal field theory in three dimensions</p></div>
+      </div>
+      <form class="lock-card" id="unlock">
+        <p>This page is for the members of the group. Its data is encrypted; enter the team password to read it.</p>
+        <label class="sr" for="pw">Team password</label>
+        <input type="password" id="pw" autocomplete="current-password" placeholder="Team password" required>
+        <label class="remember"><input type="checkbox" id="remember" checked> Remember on this device</label>
+        <button class="lock-btn" type="submit" id="unlock-btn">Unlock</button>
+        <p class="lock-err" id="lock-err" role="alert">${esc(msgText)}</p>
+      </form>
+      <button class="lock-ctl" id="lock-anim" type="button" aria-pressed="false">Pause animation</button>
+    </section>`;
+    if (S.lattice) S.lattice.stop();
+    S.lattice = lattice($('#rrl'), $('#lock-anim'));
+    $('#lock-mark').addEventListener('click', () => S.lattice && S.lattice.toggle());
+    $('#lock-mark').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); S.lattice && S.lattice.toggle(); } });
+    $('#lock-anim').addEventListener('click', () => S.lattice && S.lattice.toggle());
     $('#pw').focus();
+  }
+
+  // ------------------------------------------------------------------ the 3dCFT.com lattice (from the logo file)
+  // Poisson points uniform in (log r, angle), Delaunay-joined, drifting outward in radial time and diffusing, so every
+  // few seconds it is a new mesh; edges gold at the origin through pink and violet to cyan at the rim.
+  // Incremental Bowyer-Watson triangulation with triangle adjacency and walking point location:
+  // triangulate(n, xs, ys, order, cx, cy, span) -> { tv, tn, alive, nt }; xs, ys hold n + 3 slots (the last three take
+  // the super-triangle, whose triangles the caller skips); tn[3t+i] is the neighbour opposite vertex i (-1: none).
+  function makeDelaunay() {
+    let CAP = 0, tv, tn, alive, stamp, freeList, byFirst, bySecond, X, Y;
+    function ensure(nTri, nPts) {
+      if (nTri > CAP) {
+        CAP = Math.ceil(nTri * 1.5);
+        tv = new Int32Array(3 * CAP); tn = new Int32Array(3 * CAP);
+        alive = new Uint8Array(CAP); stamp = new Int32Array(CAP); freeList = new Int32Array(CAP);
+      }
+      if (!byFirst || byFirst.length < nPts) { byFirst = new Int32Array(nPts); bySecond = new Int32Array(nPts); }
+    }
+    const orient = (a, b, px, py) => (X[b] - X[a]) * (py - Y[a]) - (Y[b] - Y[a]) * (px - X[a]);
+    function inCircle(t, px, py) {
+      const a = tv[3 * t], b = tv[3 * t + 1], c = tv[3 * t + 2];
+      const adx = X[a] - px, ady = Y[a] - py, bdx = X[b] - px, bdy = Y[b] - py, cdx = X[c] - px, cdy = Y[c] - py;
+      return (adx * adx + ady * ady) * (bdx * cdy - cdx * bdy)
+        + (bdx * bdx + bdy * bdy) * (cdx * ady - adx * cdy)
+        + (cdx * cdx + cdy * cdy) * (adx * bdy - bdx * ady) > 0;
+    }
+    const bad = [], eA = [], eB = [], eN = [], made = [], stack = [];
+    let st = 0;
+    return function triangulate(n, xs, ys, order, cx, cy, span) {
+      const N = n + 3;
+      ensure(2 * N + 8, N);
+      X = xs; Y = ys;
+      xs[n] = cx - 30 * span; ys[n] = cy - 30 * span;
+      xs[n + 1] = cx + 30 * span; ys[n + 1] = cy - 30 * span;
+      xs[n + 2] = cx; ys[n + 2] = cy + 30 * span;
+      stamp.fill(0);
+      st = 0;
+      let nt = 1, nfree = 0, last = 0;
+      tv[0] = n; tv[1] = n + 1; tv[2] = n + 2; tn[0] = tn[1] = tn[2] = -1; alive[0] = 1;
+      for (let k = 0; k < n; k++) {
+        const p = order ? order[k] : k, px = xs[p], py = ys[p];
+        let t = alive[last] ? last : 0, steps = 0, ok = false;         // 1. walk to a triangle holding p
+        while (steps++ < 3 * N) {
+          let moved = false;
+          for (let i = 0; i < 3; i++) {
+            if (orient(tv[3 * t + (i + 1) % 3], tv[3 * t + (i + 2) % 3], px, py) < 0) {
+              const nb = tn[3 * t + i];
+              if (nb >= 0) { t = nb; moved = true; break; }
+            }
+          }
+          if (!moved) { ok = true; break; }
+        }
+        if (!ok || !inCircle(t, px, py)) {
+          for (let q = 0; q < nt; q++) if (alive[q] && inCircle(q, px, py)) { t = q; break; }
+        }
+        st++;                                                          // 2. the cavity, grown from t
+        bad.length = eA.length = eB.length = eN.length = made.length = 0;
+        stack.length = 0; stack.push(t); stamp[t] = st;
+        while (stack.length) {
+          const u = stack.pop();
+          bad.push(u);
+          for (let i = 0; i < 3; i++) {
+            const nb = tn[3 * u + i];
+            if (nb >= 0 && stamp[nb] === st) continue;
+            if (nb >= 0 && stamp[nb] !== -st && inCircle(nb, px, py)) { stamp[nb] = st; stack.push(nb); continue; }
+            if (nb >= 0) stamp[nb] = -st;
+            eA.push(tv[3 * u + (i + 1) % 3]); eB.push(tv[3 * u + (i + 2) % 3]); eN.push(nb);
+          }
+        }
+        for (const u of bad) { alive[u] = 0; freeList[nfree++] = u; }
+        for (let e = 0; e < eA.length; e++) {                          // 3. fan of new triangles over the boundary
+          const id = nfree > 0 ? freeList[--nfree] : nt++;
+          made.push(id);
+          const a = eA[e], b = eB[e], nb = eN[e];
+          tv[3 * id] = a; tv[3 * id + 1] = b; tv[3 * id + 2] = p;
+          tn[3 * id + 2] = nb; alive[id] = 1; stamp[id] = 0;
+          if (nb >= 0) {
+            for (let i = 0; i < 3; i++) {
+              if (tv[3 * nb + (i + 1) % 3] === b && tv[3 * nb + (i + 2) % 3] === a) { tn[3 * nb + i] = id; break; }
+            }
+          }
+          byFirst[a] = id; bySecond[b] = id;
+        }
+        for (let e = 0; e < made.length; e++) {
+          const id = made[e];
+          tn[3 * id] = byFirst[eB[e]];
+          tn[3 * id + 1] = bySecond[eA[e]];
+        }
+        last = made[made.length - 1];
+      }
+      return { tv, tn, alive, nt };
+    };
+  }
+
+  /** The logo's lattice on a canvas: live with a play/pause button, or one still frame (animate: false; px: a fixed
+   *  size in pixels for a canvas that is not on the page). Returns { toggle, stop, still(on) }. */
+  function lattice(cv, btn, { animate = true, px = 0 } = {}) {
+    const SZ = 512, C = 256, R = 236, RMIN = 7, DENS = 44, TPOW = 0.85;
+    const U0 = Math.log(RMIN), U1 = Math.log(R * 1.15), SPAN_U = U1 - U0;
+    const DRIFT = 0.075, SIGMA = 0.075;            // outward flow (e-folds per second) and diffusion per sqrt(second)
+    const STOPS = [[0, '#FFE14D'], [0.18, '#FF9F1C'], [0.38, '#FF4F7B'], [0.58, '#C640E8'], [0.78, '#5A5CFF'], [1, '#12C2E9']];
+    const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+    const grad = (t) => {
+      t = Math.min(Math.max(t, 0), 1);
+      for (let k = 1; k < STOPS.length; k++) {
+        if (t <= STOPS[k][0]) {
+          const [a, ca] = STOPS[k - 1], [b, cb] = STOPS[k], u = (t - a) / (b - a), x = hex(ca), y = hex(cb);
+          return 'rgb(' + x.map((v, i) => Math.round(v + (y[i] - v) * u)).join(',') + ')';
+        }
+      }
+      return STOPS[STOPS.length - 1][1];
+    };
+    const NB = 64, BAND = Array.from({ length: NB + 1 }, (_, k) => grad(k / NB));
+    const gauss = () => { let u = 0, v = 0; while (u === 0) u = Math.random(); while (v === 0) v = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+    const lam = DENS * 2 * Math.PI * SPAN_U;
+    const n = 1 + Math.max(1, Math.round(lam + Math.sqrt(lam) * gauss()));   // index 0: the origin
+    const Uc = new Float64Array(n), TH = new Float64Array(n);
+    for (let i = 1; i < n; i++) { Uc[i] = U0 + SPAN_U * Math.random(); TH[i] = 2 * Math.PI * Math.random(); }
+    const xs = new Float64Array(n + 3), ys = new Float64Array(n + 3), key = new Float64Array(n);
+    const order = Array.from({ length: n }, (_, i) => i);
+    const triangulate = makeDelaunay();
+    const ctx = cv.getContext('2d');
+    function step(dt) {
+      const sd = SIGMA * Math.sqrt(dt);
+      for (let i = 1; i < n; i++) {
+        let u = Uc[i] + DRIFT * dt + sd * gauss();
+        if (u >= U1) u -= SPAN_U; else if (u < U0) u += SPAN_U;            // radial time is periodic: S^2 x S^1
+        Uc[i] = u;
+        TH[i] = (TH[i] + sd * gauss()) % (2 * Math.PI);
+      }
+    }
+    function place() {
+      xs[0] = C; ys[0] = C; key[0] = 0;
+      for (let i = 1; i < n; i++) {
+        const r = Math.exp(Uc[i]);
+        xs[i] = C + r * Math.cos(TH[i]); ys[i] = C + r * Math.sin(TH[i]);
+        const cx = Math.floor(xs[i] / 24), cy = (ys[i] + 400) / 24;       // snake order keeps the walk short
+        key[i] = cx * 1e4 + (cx % 2 ? 1e4 - cy : cy);
+      }
+      order.sort((a, b) => key[a] - key[b]);
+    }
+    function draw() {
+      const W = cv.width, sc = W / SZ;
+      if (!W) return;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, W, W);
+      ctx.setTransform(sc, 0, 0, sc, 0, 0);
+      const { tv, tn, alive, nt } = triangulate(n, xs, ys, order, C, C, 300);
+      const sup = (t) => tv[3 * t] >= n || tv[3 * t + 1] >= n || tv[3 * t + 2] >= n;
+      const paths = Array.from({ length: NB + 1 }, () => new Path2D());
+      for (let t = 0; t < nt; t++) {
+        if (!alive[t] || sup(t)) continue;
+        for (let i = 0; i < 3; i++) {
+          const nb = tn[3 * t + i];
+          if (nb >= 0 && nb < t && alive[nb] && !sup(nb)) continue;            // each edge once
+          const a = tv[3 * t + (i + 1) % 3], b = tv[3 * t + (i + 2) % 3];
+          const x = Math.pow(Math.hypot((xs[a] + xs[b]) / 2 - C, (ys[a] + ys[b]) / 2 - C) / R, TPOW);
+          if (x > 1.2) continue;
+          const k = Math.min(NB, Math.floor(x * NB));
+          paths[k].moveTo(xs[a], ys[a]); paths[k].lineTo(xs[b], ys[b]);
+        }
+      }
+      const g = ctx.createRadialGradient(C, C, 0, C, C, 40);                  // glow at the origin
+      g.addColorStop(0, 'rgba(255,225,77,0.95)'); g.addColorStop(1, 'rgba(255,225,77,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(C, C, 40, 0, 2 * Math.PI); ctx.fill();
+      ctx.save();
+      ctx.beginPath(); ctx.arc(C, C, R, 0, 2 * Math.PI); ctx.clip();
+      ctx.lineCap = 'round'; ctx.globalAlpha = 0.9;
+      for (let k = 0; k <= NB; k++) { ctx.strokeStyle = BAND[k]; ctx.lineWidth = 0.5 + 1.5 * Math.min(1, (k + 0.5) / NB); ctx.stroke(paths[k]); }
+      ctx.globalAlpha = 1;
+      const dots = Array.from({ length: NB + 1 }, () => new Path2D());
+      for (let i = 0; i < n; i++) {
+        const x = Math.pow(Math.hypot(xs[i] - C, ys[i] - C) / R, TPOW);
+        if (x > 1) continue;
+        const k = Math.min(NB, Math.floor(x * NB)), rr = 0.8 + 2.4 * x;
+        dots[k].moveTo(xs[i] + rr, ys[i]); dots[k].arc(xs[i], ys[i], rr, 0, 2 * Math.PI);
+      }
+      for (let k = 0; k <= NB; k++) { ctx.fillStyle = BAND[k]; ctx.fill(dots[k]); }
+      ctx.restore();
+      ctx.strokeStyle = 'rgba(18,194,233,0.85)'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(C, C, R, 0, 2 * Math.PI); ctx.stroke();
+      ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.arc(C, C, 4.5, 0, 2 * Math.PI); ctx.fill();
+    }
+    function size() {
+      const w = px || Math.max(1, Math.round(cv.clientWidth * (window.devicePixelRatio || 1)));
+      if (cv.width !== w) { cv.width = w; cv.height = w; }
+      draw();
+    }
+    // runs only while wanted (not paused, no reduced motion) and while someone is looking (page shown, not idle)
+    let wanted = animate && !matchMedia('(prefers-reduced-motion: reduce)').matches, held = document.documentElement.classList.contains('still') || document.hidden;
+    let raf = 0, lastT = 0, dead = false;
+    function frame(now) {
+      raf = 0;
+      if (dead || !wanted || held) return;
+      const dt = lastT ? Math.min((now - lastT) / 1000, 0.05) : 0;
+      lastT = now;
+      if (dt > 0) { step(dt); place(); }
+      draw();
+      raf = requestAnimationFrame(frame);
+    }
+    function sync() {
+      if (btn) {
+        btn.textContent = wanted ? 'Pause animation' : 'Play animation';
+        btn.setAttribute('aria-pressed', wanted ? 'false' : 'true');
+      }
+      if (wanted && !held && !raf && !dead) { lastT = 0; raf = requestAnimationFrame(frame); }
+    }
+    const ro = window.ResizeObserver && !px ? new ResizeObserver(size) : null;
+    if (ro) ro.observe(cv);
+    place(); size(); sync();
+    return {
+      toggle() { wanted = animate && !wanted; sync(); },
+      still(on) { held = on; sync(); },
+      stop() { dead = true; if (raf) cancelAnimationFrame(raf); raf = 0; if (ro) ro.disconnect(); },
+    };
   }
 
   async function unlock(ev) {
@@ -275,6 +506,7 @@
   // ------------------------------------------------------------------ shell
   function render() {
     if (!S.data) return;
+    if (S.lattice) { S.lattice.stop(); S.lattice = null; }
     route();
     const d = S.data;
     document.body.classList.remove('locked');
@@ -282,14 +514,14 @@
     $('#repo-link').href = d.project.github || '#';
     $('#repo-link').hidden = !d.project.github;
     $('#lock').hidden = S.mode !== 'enc';
-    $('#brand-title').textContent = d.project.title || 'Research status';
+    $('#brand-title').textContent = d.project.title || '';
     $('#tagline').textContent = d.project.tagline || '';
-    document.title = `${d.project.title} · ${S.view[0].toUpperCase()}${S.view.slice(1)}`;
+    document.title = `3dCFT.com · ${S.view[0].toUpperCase()}${S.view.slice(1)}`;
     renderTicker();
     const v = $('#view');
     const keep = window.scrollY;
     v.innerHTML = ({ live: viewLive, agents: viewAgents, map: viewMap, paper: viewPaper, activity: viewActivity })[S.view]();
-    if (S.view === 'live') afterLayout(drawWires);
+    if (S.view === 'live') afterLayout(() => { drawWires(); atlasMounted(); });
     if (S.view === 'map') afterLayout(() => { fitMap(); focusNode(); });
     if (S.view === 'live') afterLayout(focusSeat);
     window.scrollTo(0, keep);
@@ -333,6 +565,7 @@
       <div class="hero-title"><h1>Live research map</h1>${fresh()}</div>
       <div class="stats">${stats.map(([n, l]) => `<div class="stat"><b>${esc(n)}</b><span>${esc(l)}</span></div>`).join('')}</div>
     </section>
+    ${atlasPanel()}
     <section class="board" id="board" aria-label="Workstreams around the paper">
       <svg class="wires" id="wires" aria-hidden="true"></svg>
       <div class="grid9">${d.clusters.map(clusterCell).join('')}${hubCell()}</div>
@@ -347,6 +580,140 @@
       <div class="panel">${numbersPanel()}</div>
     </section>`;
   }
+
+  // The paper's atlas with a ring at each line of work and a tag naming the agents on it. Positions are fractions of the
+  // image, in map.json: a workstream's atlas.at (points; the first carries the tag; mini = small rings), atlas.tag with
+  // side (r/l), v (t = top-aligned) and row (names side by side), atlas.via / from / end (the leader's path; line = false
+  // leaves it out), atlas.label (text for spots the figure names differently); project.atlas_agents places agents that
+  // report no workstream.
+  const hasPins = (w) => !!(w.atlas && (w.atlas.at || []).length);
+  const RING_R = 12, MINI_R = 8.5;                     // ring radii in CSS pixels (style.css .apin, .apin.mini)
+  function atlasSpots() {
+    const d = S.data;
+    const spots = d.workstreams.filter(hasPins).map((w) => ({
+      key: w.id, ws: w, ...w.atlas, agents: (w.agents || []).map(agentById).filter(Boolean),
+    }));
+    Object.entries(d.project.atlas_agents || {}).forEach(([id, p]) => {
+      const a = agentById(id);
+      if (a && (p.at || []).length) spots.push({ key: 'a:' + id, ws: null, ...p, agents: [a] });
+    });
+    return spots;
+  }
+
+  // busiest first: working, then waiting or blocked, idle, done; the most recent report first within each
+  const RANK = { now: 0, today: 1, stale: 2, waiting: 3, blocked: 3, idle: 4, done: 5 };
+  const byBusy = (ags) => [...ags].sort((x, y) => (RANK[agentDot(x)] ?? 6) - (RANK[agentDot(y)] ?? 6) || String(y.updated || '').localeCompare(String(x.updated || '')));
+  const pill = (a, cls = '') => `<button class="atag-a${cls}" data-agent="${esc(a.id)}" title="${esc(a.id)} · ${esc(STATE_LABEL[a.state] || a.state)}${esc(staleNote(a))}: ${esc(a.task)}"><span class="dot a-${agentDot(a)}"></span>${esc(a.id)}</button>`;
+
+  function atlasPanel() {
+    const d = S.data;
+    if (!S.atlasUrl) return '';
+    const spots = atlasSpots();
+    const pct = (v) => `${(100 * v).toFixed(2)}%`;
+    const tagged = spots.filter((s) => s.tag && s.agents.length);
+    // leaders are laid out in pixels by layoutLeaders(), which stops them at the edge of the ring
+    const lines = tagged.filter((s) => s.line !== false).map((s) => `<g data-spot="${esc(s.key)}" data-pts="${esc(JSON.stringify([s.from || s.at[0], ...(s.via || []), s.end || s.tag]))}" data-r="${s.from ? 0 : s.mini ? MINI_R : RING_R}"><polyline class="case"/><polyline class="ink"/></g>`).join('');
+    const pins = spots.map((s) => {
+      const a = act(s.ws ? s.ws.last && s.ws.last.t : s.agents[0].updated);
+      const name = s.ws ? s.ws.title : `${s.agents[0].id}${s.label ? ' · ' + s.label : ''}`;
+      const when = s.ws ? ACT_LABEL[a] : `${STATE_LABEL[s.agents[0].state] || s.agents[0].state}, report ${ago(s.agents[0].updated)}`;
+      const attr = s.ws ? `data-ws="${esc(s.ws.id)}"` : `data-agent="${esc(s.agents[0].id)}"`;
+      return s.at.map((p, i) => `<button class="apin p-${a}${i ? ' extra' : s.mini ? ' mini' : ''}" ${attr} data-spot="${esc(s.key)}" data-name="${esc(name)}" data-when="${esc(when)}" style="left:${pct(p[0])};top:${pct(p[1])}" aria-label="${esc(name)}: ${esc(when)}"></button>`).join('');
+    }).join('');
+    // a tag shows at most four names and opens to all of them on hover or focus
+    const tags = tagged.map((s) => {
+      const ags = byBusy(s.agents);
+      const shown = ags.length > 4 ? 3 : ags.length;
+      const more = ags.length - shown;
+      const cls = `atag side-${s.side === 'l' ? 'l' : 'r'}${s.v === 't' ? ' v-t' : ''}${s.row ? ' row' : ''}${more ? ' has-more' : ''}`;
+      const width = s.row && s.side === 'l' ? `;max-width:${pct(s.tag[0])}` : '';
+      return `<div class="${cls}" data-spot="${esc(s.key)}" style="left:${pct(s.tag[0])};top:${pct(s.tag[1])}${width}">
+        ${s.label ? `<span class="atag-l">${esc(s.label)}</span>` : ''}${ags.map((a, i) => pill(a, i < shown ? '' : ' rest')).join('')}${more ? `<span class="atag-more" aria-hidden="true">+${more}</span>` : ''}</div>`;
+    }).join('');
+    // what the figure has no place for: lines of work without pins, and agents that report no workstream
+    const placed = new Set(spots.flatMap((s) => s.agents.map((a) => a.id)));
+    const off = d.workstreams.filter((w) => !hasPins(w));
+    const loose = (d.agents || []).filter((a) => !placed.has(a.id) && !(a.workstream && wsById(a.workstream)));
+    const offItem = (w) => {
+      const ags = byBusy((w.agents || []).map(agentById).filter(Boolean));
+      return `<span class="off-g${ags.length ? '' : ' none'}"><button class="off-ws" data-ws="${esc(w.id)}">${esc(w.title)}</button>${ags.map((a) => pill(a)).join('')}</span>`;
+    };
+    const legend = [['working', 'working'], ['waiting', 'waiting, or no report for a day'], ['blocked', 'blocked'], ['idle', 'idle'], ['done', 'done']]
+      .map(([k, l]) => `<span><i class="ldot l-${k}"></i>${l}</span>`).join('');
+    const rings = [['today', 'changed today'], ['week', 'this week'], ['quiet', 'quiet'], ['now', 'changed in the last 6 h']]
+      .map(([k, l]) => `<span><i class="ring p-${k}"></i>${l}</span>`).join('') + '<span><i class="ring extra"></i>the same line of work, elsewhere</span>';
+    const stale = d.atlas_sha && d.project.atlas_pins_sha && d.atlas_sha !== d.project.atlas_pins_sha;
+    const ratio = d.atlas_size ? ` style="aspect-ratio:${d.atlas_size[0]} / ${d.atlas_size[1]}"` : '';
+    return `<section class="panel atlas-live" aria-label="Who works where on the atlas">
+      <div class="panel-h"><h2>Who works where</h2><button class="btn-ghost" id="atlas-toggle" type="button" aria-pressed="${S.atlasBare ? 'true' : 'false'}">${S.atlasBare ? 'Show agents' : 'Hide agents'}</button></div>
+      <p class="panel-sub">The atlas from the paper. A ring marks each line of work, stronger the more recently it changed; the dark tags name the agents working there. Point at a ring for its name; click a ring or a name for the details.</p>
+      <div class="atlas-legend"><div><span class="kicker">Agents</span>${legend}</div><div><span class="kicker">Rings</span>${rings}</div></div>
+      ${stale ? `<div class="warn">The figure in the paper has changed since these pins were placed, so some may be off. Their positions are <code>atlas</code> in <code>map.json</code>.</div>` : ''}
+      <p class="atlas-hint">Scroll sideways for the whole atlas.</p>
+      <div class="atlas-wrap"><div class="atlas-scroll" id="atlas-scroll"><div class="atlas-stage${S.atlasBare ? ' bare' : ''}" id="atlas-stage"${ratio}>
+        <img src="${esc(S.atlasUrl)}" alt="${esc(d.project.atlas_caption || 'The atlas figure of the paper')}">
+        <svg class="atlas-lines" id="atlas-lines" aria-hidden="true">${lines}</svg>
+        ${pins}${tags}<div class="atip" id="atip" hidden></div>
+      </div></div></div>
+      ${off.length || loose.length ? `<div class="atlas-off"><span class="kicker">Not on the atlas</span>${off.map(offItem).join('')}${loose.length ? `<span class="off-g"><span class="off-ws plain">No workstream</span>${byBusy(loose).map((a) => pill(a)).join('')}</span>` : ''}</div>` : ''}
+    </section>`;
+  }
+
+  // Leaders in pixels: from the edge of the ring (2 px out) through the bends to the tag, drawn twice (a white casing
+  // under a thin ink line) so they do not read as lines of the figure. Run on every size change of the figure.
+  function layoutLeaders() {
+    const st = $('#atlas-stage'), svg = $('#atlas-lines');
+    if (!st || !svg) return;
+    const W = st.clientWidth, H = st.clientHeight;
+    if (!W || !H) return;
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    $$('g[data-pts]', svg).forEach((g) => {
+      const pts = JSON.parse(g.dataset.pts).map(([x, y]) => [x * W, y * H]);
+      const r = +g.dataset.r;
+      if (r && pts.length > 1) {
+        const [a, b] = pts, len = Math.hypot(b[0] - a[0], b[1] - a[1]), cut = Math.min(r + 2, len);
+        if (len) pts[0] = [a[0] + (b[0] - a[0]) * cut / len, a[1] + (b[1] - a[1]) * cut / len];
+      }
+      const attr = pts.map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+      g.querySelectorAll('polyline').forEach((l) => l.setAttribute('points', attr));
+    });
+  }
+  const atlasRO = window.ResizeObserver ? new ResizeObserver(() => layoutLeaders()) : null;
+  function atlasMounted() {
+    const st = $('#atlas-stage');
+    if (!st) return;
+    if (atlasRO) { atlasRO.disconnect(); atlasRO.observe(st); }
+    layoutLeaders();
+    const sc = $('#atlas-scroll');
+    const edge = () => sc.parentElement.classList.toggle('at-end', sc.scrollLeft + sc.clientWidth >= sc.scrollWidth - 2);
+    sc.addEventListener('scroll', edge, { passive: true });
+    edge();
+  }
+
+  // hovering a ring, its tag or its leader lights up the three together; a ring also shows its name at once
+  function atlasHot(key, ring) {
+    const stage = $('#atlas-stage');
+    if (!stage) return;
+    stage.classList.toggle('focus', !!key);
+    $$('[data-spot]', stage).forEach((el) => el.classList.toggle('hot', !!key && el.dataset.spot === key));
+    const tip = $('#atip');
+    if (!tip) return;
+    if (ring) {
+      tip.innerHTML = `<b>${esc(ring.dataset.name)}</b><span>${esc(ring.dataset.when)}</span>`;
+      tip.style.left = ring.style.left; tip.style.top = ring.style.top;
+      tip.classList.toggle('below', parseFloat(ring.style.top) < 12);
+      tip.hidden = false;
+    } else tip.hidden = true;
+  }
+  document.addEventListener('pointerover', (ev) => {
+    const t = ev.target.closest && ev.target.closest('#atlas-stage [data-spot]');
+    if (t) atlasHot(t.dataset.spot, t.classList.contains('apin') ? t : null);
+  });
+  document.addEventListener('pointerout', (ev) => {     // entering another spot is handled by its pointerover
+    const t = ev.target.closest && ev.target.closest('#atlas-stage [data-spot]');
+    const to = ev.relatedTarget && ev.relatedTarget.closest && ev.relatedTarget.closest('#atlas-stage [data-spot]');
+    if (t && !to) atlasHot(null);
+  });
 
   function clusterCell(c) {
     const items = S.data.workstreams.filter((w) => w.cluster === c.id);
@@ -520,6 +887,7 @@
     const id = selWs();
     $$('.seat').forEach((n) => n.classList.toggle('sel', n.dataset.ws === id));
     const seat = id && document.querySelector(`.seat[data-ws="${CSS.escape(id)}"]`);
+    if (S.keepScroll) { S.keepScroll = false; return; }   // opened from the atlas: stay there
     if (!seat) return;
     const r = seat.getBoundingClientRect();
     if (r.top < 70 || r.bottom > innerHeight) window.scrollTo({ top: scrollY + r.top - Math.max(80, (innerHeight - r.height) / 2), behavior: 'auto' });
@@ -727,7 +1095,7 @@ python3 /tmp/agent_status.py inbox YOUR-AGENT  # requests to you`;
     if (was !== open) relayout();
   }
   function relayout() {
-    if (S.view === 'live') afterLayout(() => { drawWires(); });
+    if (S.view === 'live') afterLayout(() => { drawWires(); layoutLeaders(); });
     if (S.view === 'map') afterLayout(() => { fitMap(); focusNode(); });
   }
 
@@ -736,6 +1104,9 @@ python3 /tmp/agent_status.py inbox YOUR-AGENT  # requests to you`;
     const dr = $('#drawer'), scrim = $('#scrim');
     const agent = S.sel && S.sel.startsWith('a:') && agentById(S.sel.slice(2));
     const w = !agent && S.sel && wsById(S.sel);
+    // the atlas spot of what the panel shows: the workstream, or the agent's own spot or workstream
+    const spot = w ? w.id : agent ? ((S.data.project.atlas_agents || {})[agent.id] ? 'a:' + agent.id : agent.workstream) : null;
+    $$('#atlas-stage [data-spot]').forEach((n) => n.classList.toggle('sel', !!spot && n.dataset.spot === spot));
     if (!w && !agent) { dr.hidden = true; scrim.hidden = true; panelLayout(false); return; }
     if (agent) {
       const reopenedA = dr.hidden;
@@ -780,8 +1151,16 @@ python3 /tmp/agent_status.py inbox YOUR-AGENT  # requests to you`;
   // ------------------------------------------------------------------ events
   document.addEventListener('click', (ev) => {
     if (ev.target.closest('a[target="_blank"]')) return;
-    const t = ev.target.closest('[data-agent],[data-ws],[data-filter],[data-filter-ws],[data-filter-go],[data-go],#hub,#close,#scrim');
+    const t = ev.target.closest('[data-agent],[data-ws],[data-filter],[data-filter-ws],[data-filter-go],[data-go],#hub,#close,#scrim,#atlas-toggle');
     if (!t) return;
+    if (t.id === 'atlas-toggle') {
+      S.atlasBare = !S.atlasBare;
+      $('#atlas-stage').classList.toggle('bare', S.atlasBare);
+      t.setAttribute('aria-pressed', String(S.atlasBare));
+      t.textContent = S.atlasBare ? 'Show agents' : 'Hide agents';
+      return;
+    }
+    S.keepScroll = !!t.closest('#atlas-stage');
     if (t.dataset.agent) { ev.preventDefault(); go(S.view, 'a:' + t.dataset.agent); return; }
     if (t.id === 'close' || t.id === 'scrim') { go(S.view); return; }
     if (t.id === 'hub' || t.dataset.go === 'paper') { go('paper'); return; }
@@ -825,7 +1204,7 @@ python3 /tmp/agent_status.py inbox YOUR-AGENT  # requests to you`;
   // input (html.still), start again on the next input. A hidden page also stops polling and catches up when shown.
   const IDLE_MS = 3 * 60_000;
   let idleTimer = 0, lastWake = 0;
-  const setStill = (still) => document.documentElement.classList.toggle('still', still);
+  const setStill = (still) => { document.documentElement.classList.toggle('still', still); if (S.lattice) S.lattice.still(still || document.hidden); };
   function wake() {
     if (document.hidden) return;
     const now = Date.now();
@@ -853,6 +1232,14 @@ python3 /tmp/agent_status.py inbox YOUR-AGENT  # requests to you`;
     try { localStorage.setItem(themeKey, document.documentElement.dataset.theme); } catch (_) { /* ignore */ }
     if (S.view === 'live') drawWires();
   });
+
+  // the 3dCFT.com sign: a still frame of the logo's lattice in the header, and another as the tab's icon
+  lattice($('#brand-rrl'), null, { animate: false });
+  try {
+    const ic = document.createElement('canvas');
+    lattice(ic, null, { animate: false, px: 64 });
+    $('#favicon').href = ic.toDataURL('image/png');
+  } catch (_) { /* no canvas: keep the browser's default icon */ }
 
   route();
   load(true);
